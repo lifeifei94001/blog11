@@ -10,16 +10,12 @@ import { i18n } from "@i18n/translation";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
 import "@/styles/banner-post.css";
 import {
-	getRelatedPosts,
-	getSeriesPosts,
-	getSortedPosts,
-} from "@utils/content-utils";
-import {
 	getCategoryUrl,
 	getFileDirFromPath,
 	getPostUrlBySlug,
 	removeFileExtension,
 } from "@utils/url-utils";
+import type { MarkdownHeading } from "astro";
 import { Icon } from "astro-icon/components";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
@@ -32,7 +28,13 @@ import { coverImageConfig } from "@/config/coverImageConfig";
 import { licenseConfig } from "@/config/licenseConfig";
 import { profileConfig } from "@/config/profileConfig";
 import { siteConfig } from "@/config/siteConfig";
-import { sponsorConfig } from "@/config/sponsorConfig";
+import {
+	getEffectiveSettings,
+	getUnifiedPostBySlug,
+	getUnifiedRelatedPosts,
+	getUnifiedSeriesPosts,
+} from "@/lib/blog-store";
+import { renderMarkdownContent } from "@/lib/markdown-renderer";
 import { formatDateToYYYYMMDD } from "@/utils/date-utils";
 import { getApiUrlList, processCoverImageSync } from "@/utils/image-utils";
 import {
@@ -48,26 +50,51 @@ import {
 } from "@/utils/schema-utils";
 import { url } from "@/utils/url-utils";
 
-const showSponsorButton =
-	sponsorConfig.showButtonInPost && siteConfig.pages.sponsor;
-const showPostActionCard = siteConfig.post.share || showSponsorButton;
+export const prerender = false;
 
-export async function getStaticPaths() {
-	const blogEntries = await getSortedPosts();
-	return blogEntries.map((entry) => {
-		// 将 id 转换为 slug（移除扩展名）以匹配路由参数
-		const slug = removeFileExtension(entry.id);
-		return {
-			params: { slug },
-			props: { entry },
-		};
-	});
+const showPostActionCard = Boolean(siteConfig.post.share);
+
+const rawSlug = removeFileExtension((Astro.params.slug || "").replace(/^\/+|\/+$/g, ""));
+const entry = rawSlug ? await getUnifiedPostBySlug(rawSlug, import.meta.env.DEV) : null;
+if (!entry) {
+	Astro.response.status = 404;
+	return Astro.rewrite("/404/");
 }
 
-const { entry } = Astro.props;
-const { Content, headings } = await render(entry);
+const runtimeSettings = await getEffectiveSettings();
+const effectiveSiteConfig = {
+	...siteConfig,
+	title: runtimeSettings.siteTitle || siteConfig.title,
+	subtitle: runtimeSettings.siteSubtitle || siteConfig.subtitle,
+	description: runtimeSettings.siteDescription || siteConfig.description,
+};
+const effectiveProfileConfig = {
+	...profileConfig,
+	name: runtimeSettings.profileName || profileConfig.name,
+	bio: runtimeSettings.profileBio || profileConfig.bio,
+	avatar: runtimeSettings.profileAvatar || profileConfig.avatar,
+};
 
-const { remarkPluginFrontmatter } = await render(entry);
+let Content: Awaited<ReturnType<typeof render>>["Content"] | null = null;
+let headings: MarkdownHeading[] = [];
+let remarkPluginFrontmatter: { words?: number; minutes?: number; excerpt?: string } = {};
+let tursoHtml = "";
+
+if (entry.staticEntry) {
+	const rendered = await render(entry.staticEntry);
+	Content = rendered.Content;
+	headings = rendered.headings;
+	remarkPluginFrontmatter = rendered.remarkPluginFrontmatter;
+} else {
+	const rendered = renderMarkdownContent(entry.body);
+	tursoHtml = rendered.html;
+	headings = rendered.headings;
+	remarkPluginFrontmatter = {
+		words: rendered.words,
+		minutes: rendered.minutes,
+		excerpt: rendered.excerpt,
+	};
+}
 
 const bannerPostMeta = {
 	title: entry.data.title,
@@ -116,24 +143,24 @@ const coverImage =
 		siteConfig.site_url,
 	)) ?? undefined;
 
-// 作者个人页（/about/）绝对 URL，用于 author.url 指向唯一标识作者的页面
-const aboutUrl =
-	toAbsoluteUrl("/about/", siteConfig.site_url) ?? siteConfig.site_url;
+// 作者主页绝对 URL
+const homeAbsUrl =
+	toAbsoluteUrl("/", siteConfig.site_url) ?? siteConfig.site_url;
 
-// 作者实体：与首页/about 的 Person 共用同一 @id（#person），author 用 @id 关联
+// 作者实体：与首页的 Person 共用同一 @id（#person），author 用 @id 关联
 const authorAvatarUrl = await getAuthorAvatarUrl();
 const authorPerson = buildPersonEntity({
 	site: siteConfig.site_url,
-	profileConfig,
-	authorUrl: aboutUrl,
+	profileConfig: effectiveProfileConfig,
+	authorUrl: homeAbsUrl,
 	avatarUrl: authorAvatarUrl,
-	description: profileConfig.bio,
+	description: effectiveProfileConfig.bio,
 });
 
 // publisher 实体（Organization，含真实 logo），article 的 publisher 用其 @id 关联
 const publisher = buildPublisherEntity({
 	site: siteConfig.site_url,
-	siteConfig,
+	siteConfig: effectiveSiteConfig,
 	logo: await getSiteLogo(),
 });
 
@@ -196,8 +223,8 @@ const jsonLd = {
 	],
 };
 
-const relatedPosts = await getRelatedPosts(entry, 5);
-const seriesData = await getSeriesPosts(entry);
+const relatedPosts = await getUnifiedRelatedPosts(entry, 5);
+const seriesData = await getUnifiedSeriesPosts(entry);
 ---
 
 <MainGridLayout
@@ -205,7 +232,7 @@ const seriesData = await getSeriesPosts(entry);
   description={entry.data.description || entry.data.title}
   lang={entry.data.lang}
   setOGTypeArticle={true}
-  postSlug={entry.id}
+  postSlug={entry.source === "static" ? entry.id : undefined}
   postCoverImage={coverImage?.url}
   postCategory={entry.data.category || undefined}
   ogImageWidth={coverImage?.width}
@@ -430,10 +457,10 @@ const seriesData = await getSeriesPosts(entry);
       {entry.data.password ? (
         <EncryptedPost password={entry.data.password} slug={entry.id} hint={entry.data.passwordHint}>
           <Markdown class="mb-6 markdown-content onload-animation">
-            <Content />
+            {Content ? <Content /> : <div set:html={tursoHtml} />}
           </Markdown>
 
-          {/* 打赏按钮 & 分享按钮 */}
+          {/* 分享按钮 */}
           {
             showPostActionCard && (
               <div class="mb-6 rounded-xl onload-animation">
@@ -442,27 +469,16 @@ const seriesData = await getSeriesPosts(entry);
                     <div class="flex items-center gap-3 flex-1">
                       <div class="h-12 w-12 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70 shrink-0">
                         <Icon
-                          name={sponsorConfig.showButtonInPost &&
-                          siteConfig.pages.sponsor
-                            ? "material-symbols:favorite"
-                            : "material-symbols:share"}
+                          name="material-symbols:share"
                           class="text-2xl"
                         />
                       </div>
                       <div>
                         <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButton)
-                              : i18n(I18nKey.shareOnSocial)
-                          }
+                          {i18n(I18nKey.shareOnSocial)}
                         </h3>
                         <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButtonText)
-                              : i18n(I18nKey.shareOnSocialDescription)
-                          }
+                          {i18n(I18nKey.shareOnSocialDescription)}
                         </p>
                       </div>
                     </div>
@@ -472,27 +488,16 @@ const seriesData = await getSeriesPosts(entry);
                           <SharePoster
                             client:load
                             title={entry.data.title}
-                            author={entry.data.author || profileConfig.name}
+                            author={entry.data.author || effectiveProfileConfig.name}
                             description={entry.data.description || entry.data.title}
                             pubDate={formatDateToYYYYMMDD(entry.data.published)}
                             coverImage={posterCoverUrl}
                             coverImageSelector={posterCoverSelector}
                             url={Astro.url.href}
-                            siteTitle={siteConfig.title}
+                            siteTitle={effectiveSiteConfig.title}
                             avatar={posterAvatarUrl}
                             avatarSelector={posterAvatarSelector}
                           />
-                        )
-                      }
-                      {
-                        showSponsorButton && (
-                          <a
-                            href={url("/sponsor/")}
-                            class="inline-flex items-center gap-2 px-6 py-3 bg-(--primary) text-white dark:text-black/70 rounded-lg font-medium hover:bg-(--primary)/80 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                          >
-                            <span>{i18n(I18nKey.sponsor)}</span>
-                            <Icon name="fa7-solid:arrow-right" class="text-sm" />
-                          </a>
                         )
                       }
                     </div>
@@ -520,10 +525,10 @@ const seriesData = await getSeriesPosts(entry);
       ) : (
         <>
           <Markdown class="mb-6 markdown-content onload-animation">
-            <Content />
+            {Content ? <Content /> : <div set:html={tursoHtml} />}
           </Markdown>
 
-          {/* 打赏按钮 & 分享按钮 */}
+          {/* 分享按钮 */}
           {
             showPostActionCard && (
               <div class="mb-6 rounded-xl onload-animation">
@@ -532,27 +537,16 @@ const seriesData = await getSeriesPosts(entry);
                     <div class="flex items-center gap-3 flex-1">
                       <div class="h-12 w-12 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70 shrink-0">
                         <Icon
-                          name={sponsorConfig.showButtonInPost &&
-                          siteConfig.pages.sponsor
-                            ? "material-symbols:favorite"
-                            : "material-symbols:share"}
+                          name="material-symbols:share"
                           class="text-2xl"
                         />
                       </div>
                       <div>
                         <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButton)
-                              : i18n(I18nKey.shareOnSocial)
-                          }
+                          {i18n(I18nKey.shareOnSocial)}
                         </h3>
                         <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButtonText)
-                              : i18n(I18nKey.shareOnSocialDescription)
-                          }
+                          {i18n(I18nKey.shareOnSocialDescription)}
                         </p>
                       </div>
                     </div>
@@ -562,27 +556,16 @@ const seriesData = await getSeriesPosts(entry);
                           <SharePoster
                             client:load
                             title={entry.data.title}
-                            author={entry.data.author || profileConfig.name}
+                            author={entry.data.author || effectiveProfileConfig.name}
                             description={entry.data.description || entry.data.title}
                             pubDate={formatDateToYYYYMMDD(entry.data.published)}
                             coverImage={posterCoverUrl}
                             coverImageSelector={posterCoverSelector}
                             url={Astro.url.href}
-                            siteTitle={siteConfig.title}
+                            siteTitle={effectiveSiteConfig.title}
                             avatar={posterAvatarUrl}
                             avatarSelector={posterAvatarSelector}
                           />
-                        )
-                      }
-                      {
-                        showSponsorButton && (
-                          <a
-                            href={url("/sponsor/")}
-                            class="inline-flex items-center gap-2 px-6 py-3 bg-(--primary) text-white dark:text-black/70 rounded-lg font-medium hover:bg-(--primary)/80 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                          >
-                            <span>{i18n(I18nKey.sponsor)}</span>
-                            <Icon name="fa7-solid:arrow-right" class="text-sm" />
-                          </a>
                         )
                       }
                     </div>
@@ -730,5 +713,5 @@ const seriesData = await getSeriesPosts(entry);
   }
 
   <!-- 评论 -->
-  {entry.data.comment && !entry.data.password && <Comment post={entry} />}
+  {entry.data.comment && !entry.data.password && <Comment customPath={`/posts/${entry.slug}`} title={entry.data.title} />}
 </MainGridLayout>

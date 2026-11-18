@@ -2,13 +2,12 @@
 import { siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
-import { getSortedPostsList } from "@/utils/content-utils";
+import { getUnifiedPosts } from "@/lib/blog-store";
 import { isDateOnly } from "@/utils/date-utils";
 import { getPostUrlBySlug, url } from "@/utils/url-utils";
 
-// 归档列表：全量按年分组，服务端渲染。筛选（?tag=/?category=/?uncategorized）
-// 与年份折叠由客户端脚本处理——数据本身在构建期已全部就绪。
-const sortedPostsList = await getSortedPostsList();
+// 归档列表：全量按年分组，服务端渲染（融合静态与云端文章）。
+const sortedPostsList = await getUnifiedPosts(false);
 
 // 严格按发布时间倒序（不受置顶影响），镜像原 Svelte 版行为
 const posts = sortedPostsList

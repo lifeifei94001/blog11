@@ -1,6 +1,7 @@
 ---
 import { Icon } from "astro-icon/components";
 import { siteConfig } from "@/config";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import type { NavBarLink } from "@/types/config";
 import { url } from "@/utils/url-utils";
 
@@ -9,7 +10,9 @@ interface Props {
 }
 
 const processedLinks = Astro.props.links;
-const navTitle = siteConfig.navbar.title || siteConfig.title;
+const runtimeSettings = await getEffectiveSettings();
+const navTitle =
+	runtimeSettings.navbarTitle || siteConfig.navbar.title || siteConfig.title;
 ---
 <div id="nav-menu-panel" class:list={["float-panel-closed absolute inset-x-0 z-1100"]} data-floating-panel data-floating-panel-trigger="nav-menu-switch" data-floating-panel-scroll-lock data-floating-panel-close-delay="300" inert aria-hidden="true">
     <!-- 一个滑动容器保证内容、毛玻璃和遮罩边缘处于同一合成坐标系。 -->
@@ -83,6 +86,17 @@ const navTitle = siteConfig.navbar.title || siteConfig.title;
                     )}
                 </div>
             ))}
+            <div class="mobile-menu-item-root pt-2 mt-2 border-t border-black/10 dark:border-white/10">
+                <a
+                    href={url("/admin/")}
+                    class="mobile-menu-item"
+                    data-nav-href={url("/admin/")}
+                >
+                    <Icon name="material-symbols:admin-panel-settings-outline" class="mobile-menu-item-icon" />
+                    <span class="mobile-menu-item-label">后台管理</span>
+                    <Icon name="material-symbols:chevron-right-rounded" class="mobile-menu-item-arrow" />
+                </a>
+            </div>
         </nav>
     </aside>
     </div>

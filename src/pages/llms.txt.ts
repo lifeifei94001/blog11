@@ -1,11 +1,11 @@
 import I18nKey from "@i18n/i18nKey";
 import { i18n } from "@i18n/translation";
-import { getSortedPosts } from "@utils/content-utils";
 import { url } from "@utils/url-utils";
 import type { APIRoute } from "astro";
 import { siteConfig } from "@/config";
+import { getEffectiveSettings, getUnifiedPosts } from "@/lib/blog-store";
 
-export const prerender = true;
+export const prerender = false;
 
 const RECENT_POSTS_COUNT = 20;
 
@@ -16,11 +16,10 @@ type KeyPage = {
 	pageKey?: keyof typeof siteConfig.pages;
 };
 
-// 主要页面：首页 / 归档 / 关于始终包含；其余按 siteConfig.pages 开关过滤
+// 主要页面：首页 / 归档始终包含；其余按 siteConfig.pages 开关过滤
 const KEY_PAGES: KeyPage[] = [
 	{ labelKey: I18nKey.home, path: "/" },
 	{ labelKey: I18nKey.archive, path: "/archive/" },
-	{ labelKey: I18nKey.about, path: "/about/" },
 	{
 		labelKey: I18nKey.friends,
 		path: "/friends/",
@@ -81,27 +80,22 @@ const KEY_PAGES: KeyPage[] = [
 		descKey: I18nKey.malSubtitle,
 		pageKey: "mal",
 	},
-	{
-		labelKey: I18nKey.sponsor,
-		path: "/sponsor/",
-		descKey: I18nKey.sponsorDescription,
-		pageKey: "sponsor",
-	},
 ];
 
 export const GET: APIRoute = async ({ site }) => {
 	const base = site ?? new URL(siteConfig.site_url);
 	const abs = (path: string) => new URL(url(path), base).href;
+	const runtimeSettings = await getEffectiveSettings();
 
 	const enabledPages = KEY_PAGES.filter(
 		(pageEntry) => !pageEntry.pageKey || siteConfig.pages[pageEntry.pageKey],
 	);
-	const posts = await getSortedPosts();
+	const posts = await getUnifiedPosts(false);
 	const recentPosts = posts.slice(0, RECENT_POSTS_COUNT);
 
 	const lines: string[] = [
-		`# ${siteConfig.title}`,
-		`> ${siteConfig.description || siteConfig.subtitle || ""}`,
+		`# ${runtimeSettings.siteTitle || siteConfig.title}`,
+		`> ${runtimeSettings.siteDescription || runtimeSettings.siteSubtitle || siteConfig.description || siteConfig.subtitle || ""}`,
 		"",
 		"## Key Pages",
 	];

@@ -2,9 +2,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { profileConfig } from "@/config";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import { url } from "@/utils/url-utils";
 
 const currentYear = new Date().getFullYear();
+const runtimeSettings = await getEffectiveSettings();
+const authorName = runtimeSettings.profileName || profileConfig.name;
 
 // 读取FooterConfig.html文件内容
 let customFooterHtml = "";
@@ -41,7 +44,7 @@ try {
 			</div>
 			<div class="mx-0.5 my-2.5 flex gap-x-2 gap-y-2.5 justify-center flex-wrap">
 				&copy; <span id="copyright-year">{currentYear}</span>
-				{profileConfig.name}. All Rights Reserved.
+				{authorName}. All Rights Reserved.
 				<span aria-hidden="true">/</span>
 				<a
 					class="transition link text-(--primary) font-medium"

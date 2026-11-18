@@ -32,6 +32,7 @@
     "@astrojs/rss": "^4.0.19",
     "@astrojs/sitemap": "^3.7.4",
     "@astrojs/svelte": "9.0.1",
+    "@astrojs/vercel": "^11.0.22",
     "@expressive-code/plugin-collapsible-sections": "^0.44.3",
     "@expressive-code/plugin-line-numbers": "^0.44.3",
     "@fancyapps/ui": "^6.1.15",
@@ -95,6 +96,7 @@
     "wrangler": "^4.147.0"
   },
   "devDependencies": {
+    "@astrojs/node": "^11.1.13",
     "@astrojs/ts-plugin": "^1.10.12",
     "@biomejs/biome": "2.6.3",
     "@iconify-json/mdi": "^1.2.3",

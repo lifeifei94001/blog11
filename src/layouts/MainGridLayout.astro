@@ -47,6 +47,7 @@ interface Props {
 		minutes?: number;
 	};
 	heading?: string;
+	hideSidebars?: boolean;
 }
 
 const backgroundImages = getBackgroundImages();
@@ -66,11 +67,12 @@ const {
 	encrypted = false,
 	bannerPostMeta,
 	heading,
+	hideSidebars = false,
 } = Astro.props;
 
 const isHomePageCheck = isHomePage(Astro.url.pathname);
 const isPostPage = !!postSlug;
-const shouldRenderCategoryBar = !!siteConfig.categoryBar;
+const shouldRenderCategoryBar = !!siteConfig.categoryBar && !hideSidebars;
 const navbarWidthFull = siteConfig.navbar.widthFull ?? false;
 
 const banner = getBannerVisibilityState({
@@ -88,9 +90,11 @@ const {
 	hasRightComponents,
 	sidebarClass,
 	staticBarClass,
-	gridColumnStyle,
-	gridDataAttrs,
 } = sidebar;
+const gridColumnStyle = hideSidebars ? "" : sidebar.gridColumnStyle;
+const gridDataAttrs = hideSidebars
+	? { ...sidebar.gridDataAttrs, "data-sidebar-enable": "false" }
+	: sidebar.gridDataAttrs;
 ---
 
 <Layout title={title} description={description} lang={lang} setOGTypeArticle={setOGTypeArticle} postSlug={postSlug} postCoverImage={postCoverImage} ogImageWidth={ogImageWidth} ogImageHeight={ogImageHeight} ogImageAlt={ogImageAlt} hasWallpaper={hasWallpaper}>
@@ -112,6 +116,7 @@ const {
           {...gridDataAttrs}
         >
 
+            {!hideSidebars && (
             <SidebarColumn
                 side="left"
                 position={sidebarLayoutConfig.position}
@@ -123,6 +128,7 @@ const {
                 headings={headings}
                 encrypted={encrypted}
             />
+            )}
                     
             {/* 主内容区包装器 - 包含静态栏位和swup容器，作为单个grid item */}
             <div id="content-column" class={staticBarClass}>
@@ -142,13 +148,14 @@ const {
             </main>
 
                 {/* 移动端底部组件：<768px 时 #main-grid 是 display:block，必须排在页脚之前 */}
-                {sidebarLayoutConfig.mobileBottomComponents && sidebarLayoutConfig.mobileBottomComponents.length > 0 && (
+                {!hideSidebars && sidebarLayoutConfig.mobileBottomComponents && sidebarLayoutConfig.mobileBottomComponents.length > 0 && (
                     <div id="mobile-bottom-sidebar" class="block md:hidden mt-4">
                         <SideBar side="bottom" headings={headings} encrypted={encrypted}></SideBar>
                     </div>
                 )}
             </div>
 
+            {!hideSidebars && (
             <SidebarColumn
                 side="right"
                 position={sidebarLayoutConfig.position}
@@ -160,6 +167,7 @@ const {
                 headings={headings}
                 encrypted={encrypted}
             />
+            )}
 
         </div>
 

@@ -2,6 +2,7 @@
 import { Icon } from "astro-icon/components";
 import TypewriterText from "@/components/features/TypewriterText.astro";
 import { backgroundWallpaper } from "@/config";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import { encodeMailto, MAILTO_ONCLICK_SCRIPT } from "@/utils/email-utils";
 
 interface Props {
@@ -10,7 +11,18 @@ interface Props {
 }
 
 const { showHomeText, initialRandomSubtitle } = Astro.props;
-const homeText = backgroundWallpaper.common?.homeText;
+const runtimeSettings = await getEffectiveSettings();
+const baseHomeText = backgroundWallpaper.common?.homeText;
+const homeText = baseHomeText
+	? {
+			...baseHomeText,
+			title: runtimeSettings.bannerTitle || baseHomeText.title,
+			subtitle:
+				runtimeSettings.bannerSubtitles.length > 0
+					? runtimeSettings.bannerSubtitles
+					: baseHomeText.subtitle,
+		}
+	: undefined;
 const homeTextLinks = homeText?.links;
 const homeTextLinksEnable = homeText?.linksEnable !== false;
 ---

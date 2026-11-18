@@ -4,9 +4,15 @@ import WidgetLayout from "@/components/common/WidgetLayout.astro";
 import { announcementConfig } from "@/config/announcementConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import type { WidgetComponentConfig } from "@/types/config";
 
-const config = announcementConfig;
+const runtimeSettings = await getEffectiveSettings();
+const config = {
+	...announcementConfig,
+	title: runtimeSettings.announcementTitle || announcementConfig.title,
+	content: runtimeSettings.announcementContent || announcementConfig.content,
+};
 
 interface Props {
 	class?: string;

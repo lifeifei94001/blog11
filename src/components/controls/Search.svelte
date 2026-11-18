@@ -107,20 +107,47 @@ const search = async (keyword: string, isDesktop: boolean): Promise<void> => {
 
 	debounceTimer = setTimeout(async () => {
 		try {
-			let searchResults: SearchResult[] = [];
+			const merged: SearchResult[] = [];
+			const seenUrls = new Set<string>();
+
+			// 实时查询聚合搜索接口（支持静态 + 云端动态文章）
+			try {
+				const liveResp = await fetch(
+					`${formatUrl("/api/search.json")}?q=${encodeURIComponent(keyword)}`,
+				);
+				if (liveResp.ok) {
+					const liveData = (await liveResp.json()) as {
+						results?: SearchResult[];
+					};
+					for (const item of liveData.results ?? []) {
+						if (!seenUrls.has(item.url)) {
+							seenUrls.add(item.url);
+							merged.push(item);
+						}
+					}
+				}
+			} catch {
+				// 忽略实时接口异常，回退 Pagefind
+			}
 
 			if (import.meta.env.PROD && window.pagefind) {
 				const response = await window.pagefind.search(keyword);
-				searchResults = await Promise.all(
+				const pagefindItems = await Promise.all(
 					response.results.map((item) => item.data()),
 				);
-			} else if (import.meta.env.DEV) {
-				searchResults = fakeResult;
+				for (const item of pagefindItems) {
+					if (!seenUrls.has(item.url)) {
+						seenUrls.add(item.url);
+						merged.push(item);
+					}
+				}
+			} else if (import.meta.env.DEV && merged.length === 0) {
+				merged.push(...fakeResult);
 			}
 
 			if (requestId !== searchRequestId) return;
 
-			result = searchResults;
+			result = merged;
 			setPanelVisibility(true, isDesktop);
 		} catch (error) {
 			if (requestId !== searchRequestId) return;
@@ -152,7 +179,8 @@ onMount(() => {
 			// If script already loaded
 			initializePagefind();
 		} else {
-			// Listen for the event
+			// 先允许实时接口立即可搜，同时监听 Pagefind 就绪事件
+			initializePagefind();
 			document.addEventListener("pagefindready", initializePagefind, {
 				once: true,
 			});

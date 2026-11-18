@@ -48,20 +48,50 @@ const search = async () => {
 	isSearching = true;
 
 	try {
+		const merged: SearchResult[] = [];
+		const seenUrls = new Set<string>();
+
+		try {
+			const liveResp = await fetch(
+				`${formatUrl("/api/search.json")}?q=${encodeURIComponent(keyword)}`,
+			);
+			if (liveResp.ok) {
+				const liveData = (await liveResp.json()) as {
+					results?: SearchResult[];
+				};
+				for (const item of liveData.results ?? []) {
+					if (!seenUrls.has(item.url)) {
+						seenUrls.add(item.url);
+						merged.push(item);
+					}
+				}
+			}
+		} catch {
+			// 忽略实时接口异常
+		}
+
 		if (import.meta.env.PROD && window.pagefind) {
 			const response = await window.pagefind.search(keyword);
 			const rawResults = await Promise.all(
 				response.results.map((item) => item.data()),
 			);
-			results = rawResults;
-		} else if (import.meta.env.DEV) {
-			// 开发模式下的模拟结果
-			results = fakeResult.filter(
-				(item) =>
-					item.excerpt.toLowerCase().includes(keyword.toLowerCase()) ||
-					item.meta.title.toLowerCase().includes(keyword.toLowerCase()),
+			for (const item of rawResults) {
+				if (!seenUrls.has(item.url)) {
+					seenUrls.add(item.url);
+					merged.push(item);
+				}
+			}
+		} else if (import.meta.env.DEV && merged.length === 0) {
+			// 开发模式回退模拟结果
+			merged.push(
+				...fakeResult.filter(
+					(item) =>
+						item.excerpt.toLowerCase().includes(keyword.toLowerCase()) ||
+						item.meta.title.toLowerCase().includes(keyword.toLowerCase()),
+				),
 			);
 		}
+		results = merged;
 	} catch (error) {
 		console.error("Search error:", error);
 		results = [];
@@ -91,11 +121,10 @@ onMount(() => {
 	if (import.meta.env.DEV) {
 		initialize();
 	} else {
-		// 生产环境等待 Pagefind 加载
+		// 生产环境立即允许实时搜索，并在 Pagefind 就绪后补充检索
+		initialize();
 		window.__loadPagefind?.();
-		if (window.pagefind) {
-			initialize();
-		} else {
+		if (!window.pagefind) {
 			document.addEventListener("pagefindready", initialize, {
 				once: true,
 			});

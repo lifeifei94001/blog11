@@ -220,8 +220,8 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 					content:
 						"如果您觉得本站内容对您有帮助，欢迎支持我们的创作！您的支持是我们持续更新的动力。",
 					link: {
-						text: "支持一下",
-						url: "about/",
+						text: "回到首页",
+						url: "/",
 						external: false,
 					},
 					closable: false,

@@ -1,5 +1,5 @@
 ---
-import type { GetStaticPaths } from "astro";
+import type { Page } from "astro";
 import Pagination from "@/components/common/Pagination.astro";
 import PostPage from "@/components/layout/PostPage.astro";
 import { siteConfig } from "@/config";
@@ -7,23 +7,69 @@ import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
 import "@/styles/banner-home.css";
-import { getSortedPosts } from "@/utils/content-utils";
-export const getStaticPaths = (async ({ paginate }) => {
-	const allBlogPosts = await getSortedPosts();
-	// 使用配置中的文章数量
-	const pageSize = siteConfig.pagination.postsPerPage;
-	return paginate(allBlogPosts, { pageSize });
-}) satisfies GetStaticPaths;
-// https://github.com/withastro/astro/issues/6507#issuecomment-1489916992
+import {
+	getEffectiveSettings,
+	getUnifiedPosts,
+	type UnifiedPost,
+} from "@/lib/blog-store";
+import { url } from "@/utils/url-utils";
 
-const { page } = Astro.props;
+export const prerender = false;
+
+const rawParam = (Astro.params.page || "").replace(/^\/+|\/+$/g, "");
+let currentPage = 1;
+if (rawParam) {
+	if (!/^\d+$/.test(rawParam)) {
+		Astro.response.status = 404;
+		return Astro.rewrite("/404/");
+	}
+	currentPage = Number.parseInt(rawParam, 10);
+	if (currentPage < 1) {
+		return Astro.redirect(url("/"));
+	}
+	if (currentPage === 1) {
+		return Astro.redirect(url("/"));
+	}
+}
+
+const allBlogPosts = await getUnifiedPosts(false);
+const pageSize = Math.max(1, siteConfig.pagination.postsPerPage);
+const total = allBlogPosts.length;
+const lastPage = Math.max(1, Math.ceil(total / pageSize));
+
+if (currentPage > lastPage) {
+	Astro.response.status = 404;
+	return Astro.rewrite("/404/");
+}
+
+const start = (currentPage - 1) * pageSize;
+const end = Math.min(total - 1, start + pageSize - 1);
+const pageData = allBlogPosts.slice(start, start + pageSize);
+
+const makePageHref = (p: number) => (p <= 1 ? url("/") : url(`/${p}/`));
+
+const page: Page<UnifiedPost> = {
+	data: pageData,
+	start,
+	end: Math.max(0, end),
+	size: pageSize,
+	total,
+	currentPage,
+	lastPage,
+	url: {
+		current: makePageHref(currentPage),
+		prev: currentPage > 1 ? makePageHref(currentPage - 1) : undefined,
+		next: currentPage < lastPage ? makePageHref(currentPage + 1) : undefined,
+		first: makePageHref(1),
+		last: makePageHref(lastPage),
+	},
+};
 
 const len = page.data.length;
-
-// 列表页隐藏的 h1：首屏用站点标题，后续页用「首页 · 页码」，避免空 h1
+const runtimeSettings = await getEffectiveSettings();
 const heading =
 	page.currentPage === 1
-		? siteConfig.title
+		? runtimeSettings.siteTitle || siteConfig.title
 		: `${i18n(I18nKey.home)} · ${page.currentPage}`;
 ---
 
@@ -43,13 +89,11 @@ const heading =
 <script>
   // 响应式分页处理脚本
   document.addEventListener("DOMContentLoaded", function () {
-    // 如果启用了响应式分页，添加相应的CSS类
-    const responsiveEnabled = true; // ${siteConfig.pagination.responsive}
+    const responsiveEnabled = true;
     if (responsiveEnabled) {
       const deviceType = getDeviceType();
       document.body.classList.add(`device-${deviceType}`);
 
-      // 监听窗口大小变化
       let resizeTimeout: any;
       window.addEventListener("resize", function () {
         clearTimeout(resizeTimeout);

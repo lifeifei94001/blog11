@@ -1,5 +1,7 @@
 import { setMaxListeners } from "node:events";
 import cloudflare from "@astrojs/cloudflare";
+import node from "@astrojs/node";
+import vercel from "@astrojs/vercel";
 import { unified } from "@astrojs/markdown-remark";
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
@@ -62,7 +64,13 @@ const adapter = process.env.CF_WORKERS
 	? cloudflare({
 			prerenderEnvironment: "node",
 		})
-	: undefined;
+	: process.env.VERCEL || process.platform !== "win32"
+		? vercel({
+				maxDuration: 60,
+			})
+		: node({
+				mode: "standalone",
+			});
 
 // https://astro.build/config
 export default defineConfig({
@@ -274,7 +282,10 @@ export default defineConfig({
 				) {
 					return false;
 				}
-				if (pathname === "/sponsor/" && !siteConfig.pages.sponsor) {
+				if (pathname.startsWith("/admin") || pathname.startsWith("/api/")) {
+					return false;
+				}
+				if (pathname === "/sponsor/" || pathname === "/about/") {
 					return false;
 				}
 				return true;

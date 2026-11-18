@@ -1,0 +1,11 @@
+---
+import AdminConsole from "@/components/admin/AdminConsole.svelte";
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+export const prerender = false;
+---
+
+<MainGridLayout title="后台管理" description="酷酷dcl 博客后台管理控制台" hideSidebars={true}>
+	<meta slot="head" name="robots" content="noindex, nofollow" />
+	<AdminConsole client:load />
+</MainGridLayout>
