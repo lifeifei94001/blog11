@@ -1,12 +1,11 @@
 ---
-import { render } from "astro:content";
 import { Icon } from "astro-icon/components";
 import CoverImage from "@/components/common/CoverImage.astro";
 import PostMetadata from "@/components/layout/PostMeta.astro";
 import PostStats from "@/components/layout/PostStats.astro";
 import { siteConfig } from "@/config";
 import type { UnifiedPost } from "@/lib/blog-store";
-import { renderMarkdownContent } from "@/lib/markdown-renderer";
+import { countReadingStats } from "@/lib/markdown-renderer";
 import { getApiUrlList, processCoverImageSync } from "@/utils/image-utils";
 import { getFileDirFromPath, getTagUrl } from "@/utils/url-utils";
 
@@ -96,19 +95,25 @@ const bottomTags = metaTagCount > 0 ? tagList.slice(0, metaTagCount) : tagList;
 const hiddenTags = tagList.slice(bottomTags.length);
 const hiddenTagCount = hiddenTags.length;
 
+const precomputedFm = entry.staticEntry?.rendered?.metadata?.frontmatter as
+	| { words?: number; minutes?: number; excerpt?: string }
+	| undefined;
 let descriptionText = description;
 let words = 0;
 let minutes = 1;
-if (entry.staticEntry) {
-	const { remarkPluginFrontmatter } = await render(entry.staticEntry);
-	descriptionText = description || remarkPluginFrontmatter.excerpt || "";
-	words = remarkPluginFrontmatter.words;
-	minutes = remarkPluginFrontmatter.minutes;
+if (
+	precomputedFm &&
+	typeof precomputedFm.words === "number" &&
+	typeof precomputedFm.minutes === "number"
+) {
+	descriptionText = description || precomputedFm.excerpt || "";
+	words = precomputedFm.words;
+	minutes = precomputedFm.minutes;
 } else {
-	const rendered = renderMarkdownContent(entry.body);
-	descriptionText = description || rendered.excerpt || "";
-	words = rendered.words;
-	minutes = rendered.minutes;
+	const stats = countReadingStats(entry.body);
+	descriptionText = description || stats.excerpt || "";
+	words = stats.words;
+	minutes = stats.minutes;
 }
 ---
 
