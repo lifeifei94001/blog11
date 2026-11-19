@@ -44,6 +44,14 @@ interface MediaItem {
 	url: string;
 }
 
+interface MusicTrackItem {
+	name: string;
+	artist: string;
+	url: string;
+	cover?: string;
+	lrc?: string;
+}
+
 interface SiteSettings {
 	siteTitle: string;
 	siteSubtitle: string;
@@ -56,6 +64,20 @@ interface SiteSettings {
 	announcementContent: string;
 	bannerTitle: string;
 	bannerSubtitles: string[];
+	bannerDesktopImages: string[];
+	bannerMobileImages: string[];
+	wallpaperMode: "" | "banner" | "fullscreen" | "overlay" | "none";
+	bannerDimOpacity: number;
+	bannerCarouselEnable: boolean;
+	siteStartDate: string;
+	hideDemoPosts: boolean;
+	musicMode: "meting" | "audius" | "custom" | "local";
+	musicServer: "netease" | "tencent" | "kugou";
+	musicType: "playlist" | "song" | "search" | "album";
+	musicId: string;
+	musicAudiusQuery: string;
+	musicShowLyrics: boolean;
+	musicCustomPlaylist: MusicTrackItem[];
 }
 
 const SESSION_CACHE_KEY = "dcl_admin_user_snapshot";
@@ -125,8 +147,24 @@ let uploading = $state(false);
 let dragOver = $state(false);
 let uploadFolder = $state("uploads");
 let showMediaPicker = $state<
-	null | "post-cover" | "post-body" | "dynamic-body" | "avatar"
+	| null
+	| "post-cover"
+	| "post-body"
+	| "dynamic-body"
+	| "avatar"
+	| "banner-desktop"
+	| "banner-mobile"
+	| `music-url:${number}`
+	| `music-cover:${number}`
 >(null);
+let b2Testing = $state(false);
+let b2TestReport = $state<{ ok: boolean; text: string } | null>(null);
+let musicTesting = $state(false);
+let musicTestResult = $state<{
+	ok: boolean;
+	message: string;
+	tracks: MusicTrackItem[];
+} | null>(null);
 
 // Settings state
 let settingsLoading = $state(false);
@@ -144,8 +182,25 @@ let settingsForm = $state<SiteSettings>({
 	announcementContent: "",
 	bannerTitle: "酷酷dcl",
 	bannerSubtitles: [],
+	bannerDesktopImages: [],
+	bannerMobileImages: [],
+	wallpaperMode: "",
+	bannerDimOpacity: 0.2,
+	bannerCarouselEnable: false,
+	siteStartDate: "2025-01-01",
+	hideDemoPosts: false,
+	musicMode: "meting",
+	musicServer: "netease",
+	musicType: "playlist",
+	musicId: "10046455237",
+	musicAudiusQuery: "",
+	musicShowLyrics: true,
+	musicCustomPlaylist: [],
 });
 let bannerSubtitlesText = $state("");
+let bannerDesktopText = $state("");
+let bannerMobileText = $state("");
+let bannerUploading = $state<null | "desktop" | "mobile">(null);
 
 let filteredPosts = $derived.by(() => {
 	const q = postSearch.trim().toLowerCase();
@@ -342,6 +397,8 @@ async function loadSettings() {
 		settingsForm = data.settings;
 		storageReady = data.storageReady;
 		bannerSubtitlesText = (data.settings.bannerSubtitles || []).join("\n");
+		bannerDesktopText = (data.settings.bannerDesktopImages || []).join("\n");
+		bannerMobileText = (data.settings.bannerMobileImages || []).join("\n");
 	} catch (err) {
 		notify("err", err instanceof Error ? err.message : "加载站点设置失败");
 	} finally {
@@ -598,30 +655,192 @@ function applyPickedMedia(item: MediaItem) {
 		dynContent += `\n![image](${item.url})`;
 	} else if (showMediaPicker === "avatar") {
 		settingsForm.profileAvatar = item.url;
+	} else if (showMediaPicker === "banner-desktop") {
+		bannerDesktopText = bannerDesktopText.trim()
+			? `${bannerDesktopText.trim()}\n${item.url}`
+			: item.url;
+	} else if (showMediaPicker === "banner-mobile") {
+		bannerMobileText = bannerMobileText.trim()
+			? `${bannerMobileText.trim()}\n${item.url}`
+			: item.url;
+	} else if (
+		typeof showMediaPicker === "string" &&
+		showMediaPicker.startsWith("music-url:")
+	) {
+		const idx = Number(showMediaPicker.split(":")[1]);
+		if (settingsForm.musicCustomPlaylist[idx]) {
+			settingsForm.musicCustomPlaylist[idx].url = item.url;
+			if (!settingsForm.musicCustomPlaylist[idx].name) {
+				settingsForm.musicCustomPlaylist[idx].name =
+					item.fileName
+						.split("/")
+						.pop()
+						?.replace(/\.[^.]+$/, "") || "未命名曲目";
+			}
+		}
+	} else if (
+		typeof showMediaPicker === "string" &&
+		showMediaPicker.startsWith("music-cover:")
+	) {
+		const idx = Number(showMediaPicker.split(":")[1]);
+		if (settingsForm.musicCustomPlaylist[idx]) {
+			settingsForm.musicCustomPlaylist[idx].cover = item.url;
+		}
 	}
 	showMediaPicker = null;
 	notify("ok", "已填入所选资源链接");
+}
+
+function parseLineList(raw: string): string[] {
+	return raw
+		.split("\n")
+		.map((s) => s.trim())
+		.filter(Boolean);
+}
+
+async function uploadBannerFile(target: "desktop" | "mobile", file: File) {
+	bannerUploading = target;
+	try {
+		const fd = new FormData();
+		fd.append("file", file);
+		fd.append("folder", "banners");
+		const resp = await fetch("/api/admin/media/", {
+			method: "POST",
+			body: fd,
+		});
+		const data = await handleApiResponse<{ file: MediaItem }>(resp);
+		if (target === "desktop") {
+			bannerDesktopText = bannerDesktopText.trim()
+				? `${bannerDesktopText.trim()}\n${data.file.url}`
+				: data.file.url;
+		} else {
+			bannerMobileText = bannerMobileText.trim()
+				? `${bannerMobileText.trim()}\n${data.file.url}`
+				: data.file.url;
+		}
+		await loadMedia();
+		notify("ok", "壁纸已上传到 Backblaze B2 并填入列表，记得点击底部保存");
+	} catch (err) {
+		notify("err", err instanceof Error ? err.message : "上传壁纸失败");
+	} finally {
+		bannerUploading = null;
+	}
+}
+
+async function testB2Connection() {
+	b2Testing = true;
+	b2TestReport = null;
+	const startedAt = performance.now();
+	try {
+		const resp = await fetch("/api/admin/media/");
+		const data = await handleApiResponse<{
+			configured: boolean;
+			files: MediaItem[];
+		}>(resp);
+		if (!data.configured) {
+			b2TestReport = {
+				ok: false,
+				text: "未检测到 B2 环境变量，请先在 Vercel 确认 B2_KEY_ID / B2_APPLICATION_KEY / B2_BUCKET_NAME。",
+			};
+			return;
+		}
+		const ms = Math.round(performance.now() - startedAt);
+		let proxyNote = "存储桶当前为空，可上传一张图片验证读取链路。";
+		if (data.files.length > 0) {
+			const sample = data.files[0];
+			const proxyRes = await fetch(sample.url, { method: "GET" });
+			proxyNote = proxyRes.ok
+				? `代理访问正常（HTTP ${proxyRes.status}）`
+				: `列表可读取，但代理读取返回 HTTP ${proxyRes.status}`;
+		}
+		b2TestReport = {
+			ok: true,
+			text: `连接成功（耗时 ${ms}ms）：共检测到 ${data.files.length} 个文件，${proxyNote}`,
+		};
+	} catch (err) {
+		b2TestReport = {
+			ok: false,
+			text: err instanceof Error ? err.message : "对象存储连接测试失败",
+		};
+	} finally {
+		b2Testing = false;
+	}
+}
+
+async function testMusicSource() {
+	musicTesting = true;
+	musicTestResult = null;
+	try {
+		const params = new URLSearchParams({
+			test: "1",
+			source: settingsForm.musicMode,
+			server: settingsForm.musicServer,
+			type: settingsForm.musicType,
+			id: settingsForm.musicId,
+			query: settingsForm.musicAudiusQuery,
+		});
+		const resp = await fetch(`/api/music/playlist.json?${params.toString()}`);
+		const data = (await resp.json()) as {
+			ok?: boolean;
+			apiUsed?: string;
+			error?: string;
+			tracks?: MusicTrackItem[];
+		};
+		if (!resp.ok || !data.ok) {
+			throw new Error(data.error || `HTTP ${resp.status}`);
+		}
+		const tracks = data.tracks || [];
+		musicTestResult = {
+			ok: true,
+			message: `拉取成功：共 ${tracks.length} 首曲目${data.apiUsed ? `（节点：${data.apiUsed}）` : ""}`,
+			tracks: tracks.slice(0, 5),
+		};
+	} catch (err) {
+		musicTestResult = {
+			ok: false,
+			message: err instanceof Error ? err.message : "歌源测试失败",
+			tracks: [],
+		};
+	} finally {
+		musicTesting = false;
+	}
+}
+
+function addCustomTrack() {
+	settingsForm.musicCustomPlaylist = [
+		...settingsForm.musicCustomPlaylist,
+		{ name: "", artist: "", url: "", cover: "" },
+	];
+}
+
+function removeCustomTrack(idx: number) {
+	settingsForm.musicCustomPlaylist = settingsForm.musicCustomPlaylist.filter(
+		(_, i) => i !== idx,
+	);
 }
 
 async function handleSaveSettings(e: Event) {
 	e.preventDefault();
 	settingsSaving = true;
 	try {
-		const subtitles = bannerSubtitlesText
-			.split("\n")
-			.map((s) => s.trim())
-			.filter(Boolean);
+		const subtitles = parseLineList(bannerSubtitlesText);
+		const bannerDesktopImages = parseLineList(bannerDesktopText);
+		const bannerMobileImages = parseLineList(bannerMobileText);
 		const resp = await fetch("/api/admin/settings/", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				...settingsForm,
 				bannerSubtitles: subtitles,
+				bannerDesktopImages,
+				bannerMobileImages,
 			}),
 		});
 		const data = await handleApiResponse<{ settings: SiteSettings }>(resp);
 		settingsForm = data.settings;
-		notify("ok", "站点设置已保存");
+		bannerDesktopText = (data.settings.bannerDesktopImages || []).join("\n");
+		bannerMobileText = (data.settings.bannerMobileImages || []).join("\n");
+		notify("ok", "站点设置已保存，前台刷新即可生效");
 	} catch (err) {
 		notify("err", err instanceof Error ? err.message : "保存设置失败");
 	} finally {
@@ -1255,13 +1474,21 @@ $effect(() => {
 						</h2>
 						<p class="text-xs text-50 mt-0.5">支持拖拽上传图片或附件（单文件 ≤ 4.2 MB），上传后自动生成永久可访问路径</p>
 					</div>
-					<div class="flex items-center gap-2">
+					<div class="flex flex-wrap items-center gap-2">
 						<input
 							type="text"
 							bind:value={uploadFolder}
 							placeholder="存储目录，默认 uploads"
 							class="admin-input text-xs w-36"
 						/>
+						<button
+							type="button"
+							disabled={b2Testing}
+							onclick={testB2Connection}
+							class="btn-regular rounded-lg px-3 py-2 text-xs cursor-pointer disabled:opacity-50"
+						>
+							{b2Testing ? "检测中…" : "检测连通性"}
+						</button>
 						<button
 							type="button"
 							onclick={loadMedia}
@@ -1271,6 +1498,13 @@ $effect(() => {
 						</button>
 					</div>
 				</div>
+
+				{#if b2TestReport}
+					<div class="rounded-xl px-4 py-2.5 text-xs flex items-center justify-between gap-2 {b2TestReport.ok ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25' : 'bg-rose-500/12 text-rose-600 dark:text-rose-400 border border-rose-500/25'}">
+						<span>{b2TestReport.text}</span>
+						<button type="button" onclick={() => (b2TestReport = null)} class="opacity-70 hover:opacity-100 cursor-pointer">✕</button>
+					</div>
+				{/if}
 
 				<!-- 拖拽上传区 -->
 				<div
@@ -1373,80 +1607,436 @@ $effect(() => {
 		<!-- Tab 4: 站点设置（严格不展示任何数据库相关设置） -->
 		{:else if activeTab === "settings"}
 			<section class="card-base p-5 md:p-6">
-				<div class="flex items-center justify-between pb-3 mb-4 border-b border-black/5 dark:border-white/10">
+				<div class="flex flex-wrap items-center justify-between gap-3 pb-3 mb-5 border-b border-black/5 dark:border-white/10">
 					<div>
 						<h2 class="font-bold text-base text-90">站点基础设置</h2>
-						<p class="text-xs text-50 mt-0.5">自定义博客名称、个人资料、首页横幅与公告内容</p>
+						<p class="text-xs text-50 mt-0.5">自定义博客资料、主页壁纸图片、在线音乐歌源与展示细节</p>
 					</div>
+					<a href="/" target="_blank" class="btn-regular rounded-lg px-3 py-1.5 text-xs">
+						前往首页预览 ↗
+					</a>
 				</div>
 
 				{#if settingsLoading}
 					<p class="text-xs text-50 py-8 text-center">加载设置中…</p>
 				{:else}
-					<form class="space-y-4 max-w-3xl" onsubmit={handleSaveSettings}>
-						<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-							<div>
-								<label class="admin-label" for="s-title">博客名称</label>
-								<input id="s-title" type="text" bind:value={settingsForm.siteTitle} class="admin-input w-full" />
+					<form class="space-y-7 max-w-4xl" onsubmit={handleSaveSettings}>
+						<!-- 1. 站点品牌与资料 -->
+						<div class="space-y-4">
+							<h3 class="text-sm font-bold text-90 flex items-center gap-2">
+								<span class="w-1 h-4 rounded-full bg-(--primary)"></span>
+								<span>站点资料与内容显示</span>
+							</h3>
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+								<div>
+									<label class="admin-label" for="s-title">博客名称</label>
+									<input id="s-title" type="text" bind:value={settingsForm.siteTitle} class="admin-input w-full" />
+								</div>
+								<div>
+									<label class="admin-label" for="s-nav">导航栏标题</label>
+									<input id="s-nav" type="text" bind:value={settingsForm.navbarTitle} class="admin-input w-full" />
+								</div>
+								<div>
+									<label class="admin-label" for="s-sub">站点副标题</label>
+									<input id="s-sub" type="text" bind:value={settingsForm.siteSubtitle} class="admin-input w-full" />
+								</div>
+								<div>
+									<label class="admin-label" for="s-name">博主昵称</label>
+									<input id="s-name" type="text" bind:value={settingsForm.profileName} class="admin-input w-full" />
+								</div>
+								<div>
+									<label class="admin-label" for="s-bio">个人签名</label>
+									<input id="s-bio" type="text" bind:value={settingsForm.profileBio} class="admin-input w-full" />
+								</div>
+								<div>
+									<label class="admin-label" for="s-avatar">头像 URL</label>
+									<div class="flex gap-1.5">
+										<input id="s-avatar" type="text" bind:value={settingsForm.profileAvatar} class="admin-input w-full" />
+										<button
+											type="button"
+											onclick={() => (showMediaPicker = "avatar")}
+											class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+										>
+											选图
+										</button>
+									</div>
+								</div>
+								<div>
+									<label class="admin-label" for="s-start-date">建站日期（统计运行天数）</label>
+									<input id="s-start-date" type="date" bind:value={settingsForm.siteStartDate} class="admin-input w-full" />
+								</div>
+								<div class="flex items-end pb-1.5">
+									<label class="flex items-center gap-2.5 text-xs text-90 cursor-pointer select-none">
+										<input type="checkbox" bind:checked={settingsForm.hideDemoPosts} class="rounded" />
+										<span>隐藏主题自带的 1970 示例文章（仅前台隐藏）</span>
+									</label>
+								</div>
 							</div>
+
 							<div>
-								<label class="admin-label" for="s-nav">导航栏标题</label>
-								<input id="s-nav" type="text" bind:value={settingsForm.navbarTitle} class="admin-input w-full" />
+								<label class="admin-label" for="s-desc">站点 SEO 描述</label>
+								<textarea id="s-desc" rows={2} bind:value={settingsForm.siteDescription} class="admin-input w-full"></textarea>
 							</div>
-							<div>
-								<label class="admin-label" for="s-sub">站点副标题</label>
-								<input id="s-sub" type="text" bind:value={settingsForm.siteSubtitle} class="admin-input w-full" />
+
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+								<div>
+									<label class="admin-label" for="s-ann-title">公告标题（留空用默认）</label>
+									<input id="s-ann-title" type="text" bind:value={settingsForm.announcementTitle} class="admin-input w-full" />
+								</div>
+								<div>
+									<label class="admin-label" for="s-banner-title">首页横幅主标题</label>
+									<input id="s-banner-title" type="text" bind:value={settingsForm.bannerTitle} class="admin-input w-full" />
+								</div>
 							</div>
+
 							<div>
-								<label class="admin-label" for="s-name">博主昵称</label>
-								<input id="s-name" type="text" bind:value={settingsForm.profileName} class="admin-input w-full" />
+								<label class="admin-label" for="s-ann-content">公告内容</label>
+								<textarea id="s-ann-content" rows={2} bind:value={settingsForm.announcementContent} class="admin-input w-full"></textarea>
 							</div>
+
 							<div>
-								<label class="admin-label" for="s-bio">个人签名</label>
-								<input id="s-bio" type="text" bind:value={settingsForm.profileBio} class="admin-input w-full" />
+								<label class="admin-label" for="s-banner-subs">首页横幅副标题（每行一条）</label>
+								<textarea id="s-banner-subs" rows={2} bind:value={bannerSubtitlesText} class="admin-input w-full"></textarea>
 							</div>
-							<div>
-								<label class="admin-label" for="s-avatar">头像 URL</label>
-								<div class="flex gap-1.5">
-									<input id="s-avatar" type="text" bind:value={settingsForm.profileAvatar} class="admin-input w-full" />
+						</div>
+
+						<!-- 2. 主页壁纸与视觉自定义 -->
+						<div class="space-y-4 pt-5 border-t border-black/10 dark:border-white/10">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="text-sm font-bold text-90 flex items-center gap-2">
+									<span class="w-1 h-4 rounded-full bg-(--primary)"></span>
+									<span>主页图片与壁纸自定义</span>
+								</h3>
+								<div class="flex flex-wrap gap-1.5 text-[11px]">
 									<button
 										type="button"
-										onclick={() => (showMediaPicker = "avatar")}
-										class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+										onclick={() => {
+											bannerDesktopText = "https://t.alcy.cc/pc";
+											bannerMobileText = "https://t.alcy.cc/mp";
+										}}
+										class="btn-regular rounded-lg px-2.5 py-1 cursor-pointer"
 									>
-										选图
+										填入随机二次元 API
 									</button>
+									<button
+										type="button"
+										onclick={() => {
+											bannerDesktopText = "";
+											bannerMobileText = "";
+										}}
+										class="btn-regular rounded-lg px-2.5 py-1 cursor-pointer"
+									>
+										恢复默认壁纸
+									</button>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+								<div>
+									<label class="admin-label" for="s-wp-mode">壁纸展示模式</label>
+									<select id="s-wp-mode" bind:value={settingsForm.wallpaperMode} class="admin-input w-full">
+										<option value="">跟随主题默认（横幅 banner）</option>
+										<option value="banner">横幅壁纸（banner）</option>
+										<option value="fullscreen">全屏壁纸（fullscreen）</option>
+										<option value="overlay">背景透明叠层（overlay）</option>
+										<option value="none">纯色背景无壁纸（none）</option>
+									</select>
+								</div>
+								<div>
+									<label class="admin-label" for="s-dim">
+										遮罩暗度（{Math.round((settingsForm.bannerDimOpacity ?? 0.2) * 100)}%）
+									</label>
+									<input
+										id="s-dim"
+										type="range"
+										min="0"
+										max="0.75"
+										step="0.05"
+										bind:value={settingsForm.bannerDimOpacity}
+										class="w-full mt-2 accent-(--primary)"
+									/>
+								</div>
+								<div class="flex items-end pb-1.5">
+									<label class="flex items-center gap-2 text-xs text-90 cursor-pointer select-none">
+										<input type="checkbox" bind:checked={settingsForm.bannerCarouselEnable} class="rounded" />
+										<span>多张壁纸时开启自动轮播</span>
+									</label>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+								<div class="space-y-2">
+									<div class="flex items-center justify-between gap-2">
+										<label class="admin-label mb-0" for="s-banner-desktop">桌面端主页图片（每行一个 URL，留空用默认）</label>
+										<div class="flex items-center gap-1.5">
+											<button
+												type="button"
+												onclick={() => (showMediaPicker = "banner-desktop")}
+												class="btn-regular rounded-md px-2 py-1 text-[11px] cursor-pointer"
+											>
+												从 B2 选图
+											</button>
+											<label class="btn-regular rounded-md px-2 py-1 text-[11px] cursor-pointer">
+												{bannerUploading === "desktop" ? "上传中…" : "上传"}
+												<input
+													type="file"
+													accept="image/*"
+													class="hidden"
+													disabled={bannerUploading !== null}
+													onchange={(e) => {
+														const f = e.currentTarget.files?.[0];
+														if (f) uploadBannerFile("desktop", f);
+														e.currentTarget.value = "";
+													}}
+												/>
+											</label>
+										</div>
+									</div>
+									<textarea
+										id="s-banner-desktop"
+										rows={3}
+										placeholder="https://... 或 /api/media/?key=...（支持多行随机/轮播）"
+										bind:value={bannerDesktopText}
+										class="admin-input w-full font-mono text-xs"
+									></textarea>
+									{#if parseLineList(bannerDesktopText).length > 0}
+										<div class="flex flex-wrap gap-2 pt-1">
+											{#each parseLineList(bannerDesktopText) as imgUrl, idx (idx)}
+												<div class="w-24 h-14 rounded-lg overflow-hidden border border-black/10 dark:border-white/10 bg-black/5">
+													<img src={imgUrl} alt="桌面端壁纸预览" class="w-full h-full object-cover" />
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+
+								<div class="space-y-2">
+									<div class="flex items-center justify-between gap-2">
+										<label class="admin-label mb-0" for="s-banner-mobile">移动端主页图片（留空自动复用桌面端）</label>
+										<div class="flex items-center gap-1.5">
+											<button
+												type="button"
+												onclick={() => (showMediaPicker = "banner-mobile")}
+												class="btn-regular rounded-md px-2 py-1 text-[11px] cursor-pointer"
+											>
+												从 B2 选图
+											</button>
+											<label class="btn-regular rounded-md px-2 py-1 text-[11px] cursor-pointer">
+												{bannerUploading === "mobile" ? "上传中…" : "上传"}
+												<input
+													type="file"
+													accept="image/*"
+													class="hidden"
+													disabled={bannerUploading !== null}
+													onchange={(e) => {
+														const f = e.currentTarget.files?.[0];
+														if (f) uploadBannerFile("mobile", f);
+														e.currentTarget.value = "";
+													}}
+												/>
+											</label>
+										</div>
+									</div>
+									<textarea
+										id="s-banner-mobile"
+										rows={3}
+										placeholder="可选，不填时移动端直接展示桌面端壁纸"
+										bind:value={bannerMobileText}
+										class="admin-input w-full font-mono text-xs"
+									></textarea>
+									{#if parseLineList(bannerMobileText).length > 0}
+										<div class="flex flex-wrap gap-2 pt-1">
+											{#each parseLineList(bannerMobileText) as imgUrl, idx (idx)}
+												<div class="w-14 h-20 rounded-lg overflow-hidden border border-black/10 dark:border-white/10 bg-black/5">
+													<img src={imgUrl} alt="移动端壁纸预览" class="w-full h-full object-cover" />
+												</div>
+											{/each}
+										</div>
+									{/if}
 								</div>
 							</div>
 						</div>
 
-						<div>
-							<label class="admin-label" for="s-desc">站点 SEO 描述</label>
-							<textarea id="s-desc" rows={2} bind:value={settingsForm.siteDescription} class="admin-input w-full"></textarea>
-						</div>
-
-						<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-							<div>
-								<label class="admin-label" for="s-ann-title">公告标题（留空用默认）</label>
-								<input id="s-ann-title" type="text" bind:value={settingsForm.announcementTitle} class="admin-input w-full" />
+						<!-- 3. 免费第三方音乐歌源配置 -->
+						<div class="space-y-4 pt-5 border-t border-black/10 dark:border-white/10">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="text-sm font-bold text-90 flex items-center gap-2">
+									<span class="w-1 h-4 rounded-full bg-(--primary)"></span>
+									<span>音乐播放器与免费第三方歌源</span>
+								</h3>
+								<button
+									type="button"
+									disabled={musicTesting}
+									onclick={testMusicSource}
+									class="btn-regular rounded-lg px-3 py-1.5 text-xs cursor-pointer disabled:opacity-50"
+								>
+									{musicTesting ? "拉取测试中…" : "测试拉取当前歌源"}
+								</button>
 							</div>
-							<div>
-								<label class="admin-label" for="s-banner-title">首页横幅主标题</label>
-								<input id="s-banner-title" type="text" bind:value={settingsForm.bannerTitle} class="admin-input w-full" />
+
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+								<div>
+									<label class="admin-label" for="s-music-mode">音乐来源模式</label>
+									<select id="s-music-mode" bind:value={settingsForm.musicMode} class="admin-input w-full">
+										<option value="meting">免费第三方 Meting（网易云 / QQ / 酷狗）</option>
+										<option value="audius">Audius 免费全球独立音乐源（免授权无地域限制）</option>
+										<option value="custom">自定义歌单（B2 上传音频或外链直链）</option>
+										<option value="local">本地内置曲目</option>
+									</select>
+								</div>
+								<div class="flex items-end pb-1.5">
+									<label class="flex items-center gap-2 text-xs text-90 cursor-pointer select-none">
+										<input type="checkbox" bind:checked={settingsForm.musicShowLyrics} class="rounded" />
+										<span>在播放器上显示歌词切换按钮</span>
+									</label>
+								</div>
 							</div>
+
+							{#if settingsForm.musicMode === "meting"}
+								<div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+									<div>
+										<label class="admin-label" for="s-music-server">平台</label>
+										<select id="s-music-server" bind:value={settingsForm.musicServer} class="admin-input w-full">
+											<option value="netease">网易云音乐（Netease）</option>
+											<option value="tencent">QQ 音乐（Tencent）</option>
+											<option value="kugou">酷狗音乐（Kugou）</option>
+										</select>
+									</div>
+									<div>
+										<label class="admin-label" for="s-music-type">类型</label>
+										<select id="s-music-type" bind:value={settingsForm.musicType} class="admin-input w-full">
+											<option value="playlist">歌单（playlist）</option>
+											<option value="song">单曲（song）</option>
+											<option value="album">专辑（album）</option>
+											<option value="search">关键词搜索（search）</option>
+										</select>
+									</div>
+									<div>
+										<label class="admin-label" for="s-music-id">歌单 / 歌曲 ID 或搜索词</label>
+										<input id="s-music-id" type="text" bind:value={settingsForm.musicId} class="admin-input w-full" />
+									</div>
+								</div>
+								<div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+									<span class="text-50">快捷预设：</span>
+									<button
+										type="button"
+										onclick={() => {
+											settingsForm.musicServer = "netease";
+											settingsForm.musicType = "playlist";
+											settingsForm.musicId = "10046455237";
+										}}
+										class="btn-regular rounded-md px-2 py-1 cursor-pointer"
+									>
+										知更鸟 / HOYO-MiX
+									</button>
+									<button
+										type="button"
+										onclick={() => {
+											settingsForm.musicServer = "netease";
+											settingsForm.musicType = "playlist";
+											settingsForm.musicId = "3778678";
+										}}
+										class="btn-regular rounded-md px-2 py-1 cursor-pointer"
+									>
+										网易云热歌榜
+									</button>
+									<button
+										type="button"
+										onclick={() => {
+											settingsForm.musicServer = "netease";
+											settingsForm.musicType = "playlist";
+											settingsForm.musicId = "2829883282";
+										}}
+										class="btn-regular rounded-md px-2 py-1 cursor-pointer"
+									>
+										华语精选歌单
+									</button>
+								</div>
+							{:else if settingsForm.musicMode === "audius"}
+								<div>
+									<label class="admin-label" for="s-audius-q">Audius 搜索关键词（留空则自动拉取全球热门 Trending 榜单）</label>
+									<input
+										id="s-audius-q"
+										type="text"
+										placeholder="例如：lofi / chill / synthwave / anime，或留空"
+										bind:value={settingsForm.musicAudiusQuery}
+										class="admin-input w-full"
+									/>
+								</div>
+							{:else if settingsForm.musicMode === "custom"}
+								<div class="space-y-2.5">
+									<div class="flex items-center justify-between">
+										<span class="text-xs text-50">支持从 Backblaze B2 图库选择已上传的 MP3/M4A 音频或填外链直链</span>
+										<button
+											type="button"
+											onclick={addCustomTrack}
+											class="btn-regular rounded-lg px-2.5 py-1 text-xs cursor-pointer"
+										>
+											+ 添加曲目
+										</button>
+									</div>
+									{#each settingsForm.musicCustomPlaylist as track, idx (idx)}
+										<div class="rounded-xl border border-black/10 dark:border-white/10 p-3 space-y-2 bg-black/2 dark:bg-white/2">
+											<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+												<input type="text" placeholder="歌曲名称" bind:value={track.name} class="admin-input text-xs w-full" />
+												<input type="text" placeholder="歌手 / 艺术家" bind:value={track.artist} class="admin-input text-xs w-full" />
+											</div>
+											<div class="flex gap-1.5">
+												<input type="text" placeholder="音频直链 URL 或 /api/media/?key=..." bind:value={track.url} class="admin-input text-xs w-full font-mono" />
+												<button
+													type="button"
+													onclick={() => (showMediaPicker = `music-url:${idx}`)}
+													class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+												>
+													B2选音频
+												</button>
+											</div>
+											<div class="flex gap-1.5">
+												<input type="text" placeholder="封面图片 URL（可选）" bind:value={track.cover} class="admin-input text-xs w-full font-mono" />
+												<button
+													type="button"
+													onclick={() => (showMediaPicker = `music-cover:${idx}`)}
+													class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+												>
+													选封面
+												</button>
+												<button
+													type="button"
+													onclick={() => removeCustomTrack(idx)}
+													class="px-2.5 rounded-lg text-xs text-rose-500 hover:bg-rose-500/10 shrink-0 cursor-pointer"
+												>
+													删除
+												</button>
+											</div>
+										</div>
+									{/each}
+									{#if settingsForm.musicCustomPlaylist.length === 0}
+										<p class="text-xs text-50 py-2">还没有自定义曲目，点击右上角「+ 添加曲目」即可配置。</p>
+									{/if}
+								</div>
+							{/if}
+
+							{#if musicTestResult}
+								<div class="rounded-xl p-3 text-xs space-y-2 {musicTestResult.ok ? 'bg-emerald-500/10 border border-emerald-500/25' : 'bg-rose-500/10 border border-rose-500/25'}">
+									<div class="flex items-center justify-between gap-2 font-medium {musicTestResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">
+										<span>{musicTestResult.message}</span>
+										<button type="button" onclick={() => (musicTestResult = null)} class="cursor-pointer opacity-70 hover:opacity-100">✕</button>
+									</div>
+									{#if musicTestResult.tracks.length > 0}
+										<div class="space-y-1.5 pt-1">
+											{#each musicTestResult.tracks as t, i (i)}
+												<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1.5">
+													<span class="truncate text-90">{i + 1}. {t.name} — <span class="text-50">{t.artist}</span></span>
+													<audio controls preload="none" src={t.url} class="h-7 max-w-56 shrink-0"></audio>
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 
-						<div>
-							<label class="admin-label" for="s-ann-content">公告内容</label>
-							<textarea id="s-ann-content" rows={2} bind:value={settingsForm.announcementContent} class="admin-input w-full"></textarea>
-						</div>
-
-						<div>
-							<label class="admin-label" for="s-banner-subs">首页横幅副标题（每行一条）</label>
-							<textarea id="s-banner-subs" rows={3} bind:value={bannerSubtitlesText} class="admin-input w-full"></textarea>
-						</div>
-
-						<div class="pt-2">
+						<div class="pt-3 flex flex-wrap items-center gap-3">
 							<button
 								type="submit"
 								disabled={settingsSaving}
@@ -1454,6 +2044,9 @@ $effect(() => {
 							>
 								{settingsSaving ? "保存中…" : "保存站点设置"}
 							</button>
+							<a href="/" target="_blank" class="text-xs text-(--primary) hover:underline">
+								保存后点此在新标签页打开首页查看效果 ↗
+							</a>
 						</div>
 					</form>
 				{/if}

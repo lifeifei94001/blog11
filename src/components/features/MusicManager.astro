@@ -3,40 +3,81 @@ import { musicPlayerConfig } from "@/config/musicConfig";
 import { siteConfig } from "@/config/siteConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
+import type { SiteRuntimeSettings } from "@/lib/blog-store";
 import { url } from "@/utils/url-utils";
 
+interface Props {
+	runtimeSettings?: SiteRuntimeSettings;
+}
+
+const { runtimeSettings } = Astro.props;
 const config = musicPlayerConfig;
 
-const localPlaylist =
-	config.mode === "local" && config.local?.playlist
-		? config.local.playlist.map((song) => {
-				const isFullUrl = (path: string) => /^https?:\/\//.test(path);
-				return {
-					name: song.name,
-					artist: song.artist,
-					url: isFullUrl(song.url) ? song.url : url(song.url),
-					pic: song.cover
-						? isFullUrl(song.cover)
-							? song.cover
-							: url(song.cover)
-						: undefined,
-					lrc: song.lrc
-						? isFullUrl(song.lrc)
-							? song.lrc
-							: url(song.lrc)
-						: undefined,
-				};
-			})
-		: [];
+const effectiveMode = runtimeSettings?.musicMode || config.mode || "meting";
+const effectiveServer =
+	runtimeSettings?.musicServer || config.meting?.server || "netease";
+const effectiveType =
+	runtimeSettings?.musicType || config.meting?.type || "playlist";
+const effectiveId =
+	runtimeSettings?.musicId || config.meting?.id || "10046455237";
+const effectiveAudiusQuery = runtimeSettings?.musicAudiusQuery || "";
+const effectiveShowLyrics =
+	typeof runtimeSettings?.musicShowLyrics === "boolean"
+		? runtimeSettings.musicShowLyrics
+		: (config.showLyrics ?? true);
+
+const mapPlaylistUrls = (
+	list: Array<{
+		name: string;
+		artist: string;
+		url: string;
+		cover?: string;
+		lrc?: string;
+	}>,
+) =>
+	list.map((song) => {
+		const isFullUrl = (path: string) =>
+			/^https?:\/\//.test(path) || path.startsWith("/api/");
+		return {
+			name: song.name,
+			artist: song.artist,
+			url: isFullUrl(song.url) ? song.url : url(song.url),
+			pic: song.cover
+				? isFullUrl(song.cover)
+					? song.cover
+					: url(song.cover)
+				: undefined,
+			lrc: song.lrc
+				? isFullUrl(song.lrc)
+					? song.lrc
+					: url(song.lrc)
+				: undefined,
+		};
+	});
+
+const localPlaylist = config.local?.playlist
+	? mapPlaylistUrls(config.local.playlist)
+	: [];
+const customPlaylist = runtimeSettings?.musicCustomPlaylist?.length
+	? mapPlaylistUrls(runtimeSettings.musicCustomPlaylist)
+	: [];
 
 const managerConfigStr = JSON.stringify({
-	siteTitle: siteConfig.title,
-	mode: config.mode,
-	meting: config.meting,
-	localPlaylist: localPlaylist,
+	siteTitle: runtimeSettings?.siteTitle || siteConfig.title,
+	mode: effectiveMode,
+	meting: {
+		...(config.meting || {}),
+		server: effectiveServer,
+		type: effectiveType,
+		id: effectiveId,
+	},
+	audiusQuery: effectiveAudiusQuery,
+	playlistEndpoint: url("/api/music/playlist.json"),
+	localPlaylist,
+	customPlaylist,
 	volume: config.volume ?? 0.7,
 	playMode: config.playMode ?? "list",
-	showLyrics: config.showLyrics ?? true,
+	showLyrics: effectiveShowLyrics,
 	i18n: {
 		noPlaying: i18n(I18nKey.musicNoPlaying),
 		lyrics: i18n(I18nKey.musicLyrics),
@@ -97,8 +138,8 @@ const managerConfigStr = JSON.stringify({
     }
 
     // ── Audio element (persistent, attached to body) ────────
+    // 注意：不设置 crossOrigin='anonymous'，避免第三方音频直链重定向未携带 CORS 头时被浏览器静音拦截
     var audio = document.createElement('audio');
-    audio.crossOrigin = 'anonymous';
     audio.style.display = 'none';
     audio.preload = 'none'; // 阻止浏览器预加载和自动恢复播放
     document.body.appendChild(audio);
@@ -267,11 +308,33 @@ const managerConfigStr = JSON.stringify({
         });
     }
 
-    // ── Meting fetch ─────────────────────────────────────────
+    // ── Meting & Audius & Proxy fetch ────────────────────────
+    async function fetchServerPlaylist() {
+        if (!config.playlistEndpoint) return null;
+        try {
+            var res = await fetch(config.playlistEndpoint);
+            if (!res.ok) return null;
+            var json = await res.json();
+            if (json && json.ok && Array.isArray(json.tracks) && json.tracks.length > 0) {
+                return json.tracks;
+            }
+        } catch (e) {
+            console.warn('Server playlist endpoint failed:', e);
+        }
+        return null;
+    }
+
     async function fetchMetingData() {
         if (!config.meting) return;
         var m = config.meting;
         var apis = [m.api].concat(m.fallbackApis || []);
+
+        // 优先走后端聚合接口（支持多节点快速重试，避免部分浏览器跨域问题）
+        var serverTracks = await fetchServerPlaylist();
+        if (serverTracks && serverTracks.length > 0) {
+            state.playlist = serverTracks;
+            return;
+        }
 
         for (var i = 0; i < apis.length; i++) {
             var baseApi = apis[i];
@@ -304,7 +367,53 @@ const managerConfigStr = JSON.stringify({
                 console.warn('Meting API failed for ' + baseApi, e);
             }
         }
+
+        if (config.localPlaylist && config.localPlaylist.length > 0) {
+            state.playlist = config.localPlaylist;
+            return;
+        }
         throw new Error('All Meting APIs failed');
+    }
+
+    async function fetchAudiusData() {
+        var serverTracks = await fetchServerPlaylist();
+        if (serverTracks && serverTracks.length > 0) {
+            state.playlist = serverTracks;
+            return;
+        }
+        var q = (config.audiusQuery || '').trim();
+        var directUrl = q
+            ? 'https://discoveryprovider.audius.co/v1/tracks/search?query=' + encodeURIComponent(q) + '&app_name=kukudcl&limit=15'
+            : 'https://discoveryprovider.audius.co/v1/tracks/trending?app_name=kukudcl&limit=15';
+        try {
+            var res = await fetch(directUrl);
+            if (res.ok) {
+                var json = await res.json();
+                var rows = Array.isArray(json && json.data) ? json.data : [];
+                var tracks = rows
+                    .filter(function (t) { return t && t.id && t.is_streamable !== false && !t.is_stream_gated; })
+                    .map(function (t) {
+                        return {
+                            name: t.title || 'Untitled',
+                            artist: (t.user && t.user.name) || 'Audius Artist',
+                            url: (t.stream && t.stream.url) || ('https://discoveryprovider.audius.co/v1/tracks/' + encodeURIComponent(t.id) + '/stream?app_name=kukudcl'),
+                            pic: (t.artwork && (t.artwork['480x480'] || t.artwork['150x150'])) || '',
+                            lrc: ''
+                        };
+                    });
+                if (tracks.length > 0) {
+                    state.playlist = tracks;
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn('Audius direct fetch failed:', e);
+        }
+        if (config.localPlaylist && config.localPlaylist.length > 0) {
+            state.playlist = config.localPlaylist;
+            return;
+        }
+        throw new Error('Audius API failed');
     }
 
     // ── Lyrics ───────────────────────────────────────────────
@@ -577,6 +686,12 @@ const managerConfigStr = JSON.stringify({
         try {
             if (config.mode === 'meting' && config.meting) {
                 await fetchMetingData();
+            } else if (config.mode === 'audius') {
+                await fetchAudiusData();
+            } else if (config.mode === 'custom') {
+                state.playlist = (config.customPlaylist && config.customPlaylist.length > 0)
+                    ? config.customPlaylist
+                    : (config.localPlaylist || []);
             } else if (config.mode === 'local') {
                 state.playlist = config.localPlaylist || [];
             }

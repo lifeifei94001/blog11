@@ -3,6 +3,7 @@ import { Icon } from "astro-icon/components";
 import { musicPlayerConfig } from "@/config/musicConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
+import { getEffectiveSettings } from "@/lib/blog-store";
 
 interface Props {
 	class?: string;
@@ -12,6 +13,11 @@ interface Props {
 const { class: className, style, id } = Astro.props;
 
 const config = musicPlayerConfig;
+const runtimeSettings = await getEffectiveSettings();
+const showLyrics =
+	typeof runtimeSettings.musicShowLyrics === "boolean"
+		? runtimeSettings.musicShowLyrics
+		: (config.showLyrics ?? true);
 
 const widgetId =
 	id || `music-widget-${Math.random().toString(36).substring(2, 9)}`;
@@ -38,7 +44,7 @@ const widgetId =
                 </h3>
             </div>
             <!-- Top Right: Lyric Toggle -->
-            <button class={`btn-lrc-toggle hover:text-(--primary) transition-all duration-300 p-0.5 pr-2 transform active:scale-95 text-neutral-400 shrink-0 ${!config.showLyrics ? 'hidden' : ''}`} title={i18n(I18nKey.musicLyrics)} aria-label={i18n(I18nKey.musicLyrics)}>
+            <button class={`btn-lrc-toggle hover:text-(--primary) transition-all duration-300 p-0.5 pr-2 transform active:scale-95 text-neutral-400 shrink-0 ${!showLyrics ? 'hidden' : ''}`} title={i18n(I18nKey.musicLyrics)} aria-label={i18n(I18nKey.musicLyrics)}>
                 <Icon name="material-symbols:subtitles-off-outline-rounded" class="icon-lrc-off text-xl" aria-hidden="true" />
                 <Icon name="material-symbols:subtitles-outline-rounded" class="icon-lrc-on text-xl hidden" aria-hidden="true" />
             </button>

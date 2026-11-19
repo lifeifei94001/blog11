@@ -1,6 +1,7 @@
 import { backgroundWallpaper, displaySettingsConfig } from "@/config";
+import type { SiteRuntimeSettings } from "@/lib/blog-store";
 import { getImageQuality } from "@/utils/image-utils";
-import { getBackgroundImages } from "@/utils/layout-utils";
+import { resolveBackgroundImages } from "@/utils/layout-utils";
 
 /** 文章横幅元信息（从 MainGridLayout 的 Props 提取，供组件复用） */
 export interface BannerPostMeta {
@@ -88,6 +89,7 @@ export function getBannerDescriptionWidth(
  */
 export function getBannerVisibilityState(
 	ctx: BannerVisibilityContext,
+	runtimeSettings?: SiteRuntimeSettings,
 ): BannerVisibilityState {
 	const {
 		isHomePage: isHomePageCheck,
@@ -96,14 +98,15 @@ export function getBannerVisibilityState(
 		bannerPostMeta,
 	} = ctx;
 
-	const isBannerMode = backgroundWallpaper.mode === "banner";
-	const isFullscreenMode = backgroundWallpaper.mode === "fullscreen";
+	const effectiveMode =
+		runtimeSettings?.wallpaperMode || backgroundWallpaper.mode;
+	const isBannerMode = effectiveMode === "banner";
+	const isFullscreenMode = effectiveMode === "fullscreen";
 	const isClassicFullscreenMode =
 		isFullscreenMode && backgroundWallpaper.fullscreen?.layout !== "hero";
-	const isOverlayMode = backgroundWallpaper.mode === "overlay";
+	const isOverlayMode = effectiveMode === "overlay";
 	const isWallpaperSwitchable = displaySettingsConfig.wallpaperModeSwitchable;
-	const isBackgroundEnabled =
-		backgroundWallpaper.mode !== "none" || isWallpaperSwitchable;
+	const isBackgroundEnabled = effectiveMode !== "none" || isWallpaperSwitchable;
 
 	const wavesConfig = backgroundWallpaper.common?.waves?.enable;
 	const wavesSwitchable = displaySettingsConfig.wavesSwitchable;
@@ -151,7 +154,10 @@ export function getBannerVisibilityState(
 	const showBannerDim =
 		(isBannerMode || isFullscreenMode || isWallpaperSwitchable) &&
 		isBackgroundEnabled;
-	const dimOpacity = backgroundWallpaper.common?.dimOpacity ?? 0.15;
+	const dimOpacity =
+		typeof runtimeSettings?.bannerDimOpacity === "number"
+			? runtimeSettings.bannerDimOpacity
+			: (backgroundWallpaper.common?.dimOpacity ?? 0.15);
 
 	const showBannerPageTitle =
 		(isBannerMode || isWallpaperSwitchable || isClassicFullscreenMode) &&
@@ -160,11 +166,16 @@ export function getBannerVisibilityState(
 		!isPostPage &&
 		!!title;
 
-	const backgroundImages = getBackgroundImages();
+	const backgroundImages = resolveBackgroundImages(
+		runtimeSettings?.bannerDesktopImages,
+		runtimeSettings?.bannerMobileImages,
+	);
 	const configQuality = getImageQuality();
 	const mobileQuality = Math.round(configQuality * 0.9);
 	const bannerCarouselEnabledDefault =
-		backgroundWallpaper.common?.carousel?.enable ?? false;
+		typeof runtimeSettings?.bannerCarouselEnable === "boolean"
+			? runtimeSettings.bannerCarouselEnable
+			: (backgroundWallpaper.common?.carousel?.enable ?? false);
 	const bannerCarouselSwitchable =
 		displaySettingsConfig.bannerCarouselSwitchable;
 	const bannerCarouselInterval = Math.max(

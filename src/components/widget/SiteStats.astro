@@ -4,12 +4,13 @@ import WidgetLayout from "@/components/common/WidgetLayout.astro";
 import { siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
-import type { WidgetComponentConfig } from "@/types/config";
 import {
+	getEffectiveSettings,
 	getUnifiedCategoryList,
 	getUnifiedPosts,
 	getUnifiedTagList,
 } from "@/lib/blog-store";
+import type { WidgetComponentConfig } from "@/types/config";
 import { getCategoryUrl } from "@/utils/url-utils";
 
 interface Props {
@@ -21,9 +22,11 @@ interface Props {
 const { class: className, style, widgetConfig } = Astro.props;
 
 const showTitle = widgetConfig?.showTitle !== false;
+const runtimeSettings = await getEffectiveSettings();
 
 // 从配置中获取站点开始日期
-const siteStartDate = siteConfig.siteStartDate || "2025-01-01";
+const siteStartDate =
+	runtimeSettings.siteStartDate || siteConfig.siteStartDate || "2025-01-01";
 
 // 获取所有文章
 const posts = await getUnifiedPosts(false);

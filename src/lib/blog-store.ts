@@ -2,6 +2,7 @@ import { type CollectionEntry, getCollection } from "astro:content";
 import {
 	announcementConfig,
 	backgroundWallpaper,
+	musicPlayerConfig,
 	profileConfig,
 	siteConfig,
 } from "@/config";
@@ -11,6 +12,14 @@ import {
 	tursoExecute,
 	utcNowStr,
 } from "./turso";
+
+export interface MusicTrackInput {
+	name: string;
+	artist: string;
+	url: string;
+	cover?: string;
+	lrc?: string;
+}
 
 export interface SiteRuntimeSettings {
 	siteTitle: string;
@@ -24,6 +33,20 @@ export interface SiteRuntimeSettings {
 	announcementContent: string;
 	bannerTitle: string;
 	bannerSubtitles: string[];
+	bannerDesktopImages: string[];
+	bannerMobileImages: string[];
+	wallpaperMode: "" | "banner" | "fullscreen" | "overlay" | "none";
+	bannerDimOpacity: number;
+	bannerCarouselEnable: boolean;
+	siteStartDate: string;
+	hideDemoPosts: boolean;
+	musicMode: "meting" | "audius" | "custom" | "local";
+	musicServer: "netease" | "tencent" | "kugou";
+	musicType: "playlist" | "song" | "search" | "album";
+	musicId: string;
+	musicAudiusQuery: string;
+	musicShowLyrics: boolean;
+	musicCustomPlaylist: MusicTrackInput[];
 }
 
 export interface UnifiedPostData {
@@ -112,6 +135,15 @@ export function getDefaultRuntimeSettings(): SiteRuntimeSettings {
 		: rawSubtitle
 			? [rawSubtitle]
 			: [];
+	const defaultMusicMode = musicPlayerConfig.mode || "meting";
+	const rawServer = musicPlayerConfig.meting?.server;
+	const defaultMusicServer: "netease" | "tencent" | "kugou" =
+		rawServer === "tencent" || rawServer === "kugou" ? rawServer : "netease";
+	const rawType = musicPlayerConfig.meting?.type;
+	const defaultMusicType: "playlist" | "song" | "search" | "album" =
+		rawType === "song" || rawType === "search" || rawType === "album"
+			? rawType
+			: "playlist";
 	return {
 		siteTitle: siteConfig.title,
 		siteSubtitle: siteConfig.subtitle,
@@ -125,6 +157,20 @@ export function getDefaultRuntimeSettings(): SiteRuntimeSettings {
 		bannerTitle:
 			backgroundWallpaper.common?.homeText?.title || siteConfig.title,
 		bannerSubtitles,
+		bannerDesktopImages: [],
+		bannerMobileImages: [],
+		wallpaperMode: "",
+		bannerDimOpacity: backgroundWallpaper.common?.dimOpacity ?? 0.2,
+		bannerCarouselEnable: backgroundWallpaper.common?.carousel?.enable ?? false,
+		siteStartDate: siteConfig.siteStartDate || "2025-01-01",
+		hideDemoPosts: false,
+		musicMode: defaultMusicMode,
+		musicServer: defaultMusicServer,
+		musicType: defaultMusicType,
+		musicId: musicPlayerConfig.meting?.id || "10046455237",
+		musicAudiusQuery: "",
+		musicShowLyrics: musicPlayerConfig.showLyrics ?? true,
+		musicCustomPlaylist: [],
 	};
 }
 
@@ -178,12 +224,64 @@ export async function saveEffectiveSettings(
 	}
 	await ensureTursoSchema();
 	const current = await getEffectiveSettings();
+	const normalizeStringList = (arr: unknown, fallback: string[]): string[] =>
+		Array.isArray(arr)
+			? arr.map((s) => String(s).trim()).filter(Boolean)
+			: fallback;
+
+	const normalizePlaylist = (
+		arr: unknown,
+		fallback: MusicTrackInput[],
+	): MusicTrackInput[] => {
+		if (!Array.isArray(arr)) return fallback;
+		return arr
+			.map((item) => {
+				const rec = item as Partial<MusicTrackInput>;
+				const name = String(rec?.name || "").trim();
+				const artist = String(rec?.artist || "").trim() || "Unknown";
+				const url = String(rec?.url || "").trim();
+				const cover = String(rec?.cover || "").trim();
+				const lrc = String(rec?.lrc || "").trim();
+				if (!name || !url) return null;
+				return {
+					name,
+					artist,
+					url,
+					...(cover ? { cover } : {}),
+					...(lrc ? { lrc } : {}),
+				};
+			})
+			.filter((t): t is MusicTrackInput => t !== null);
+	};
+
+	const dimOpacityRaw =
+		typeof patch.bannerDimOpacity === "number" &&
+		Number.isFinite(patch.bannerDimOpacity)
+			? Math.min(0.85, Math.max(0, patch.bannerDimOpacity))
+			: current.bannerDimOpacity;
+
 	const next: SiteRuntimeSettings = {
 		...current,
-		...patch,
-		bannerSubtitles: Array.isArray(patch.bannerSubtitles)
-			? patch.bannerSubtitles.map((s) => s.trim()).filter(Boolean)
-			: current.bannerSubtitles,
+		...Object.fromEntries(
+			Object.entries(patch).filter(([, v]) => v !== undefined),
+		),
+		bannerSubtitles: normalizeStringList(
+			patch.bannerSubtitles,
+			current.bannerSubtitles,
+		),
+		bannerDesktopImages: normalizeStringList(
+			patch.bannerDesktopImages,
+			current.bannerDesktopImages,
+		),
+		bannerMobileImages: normalizeStringList(
+			patch.bannerMobileImages,
+			current.bannerMobileImages,
+		),
+		bannerDimOpacity: dimOpacityRaw,
+		musicCustomPlaylist: normalizePlaylist(
+			patch.musicCustomPlaylist,
+			current.musicCustomPlaylist,
+		),
 	};
 	await tursoExecute(
 		`INSERT INTO site_settings (key, value_json, updated_at)
@@ -343,9 +441,17 @@ export async function getUnifiedPosts(
 		}
 	}
 
-	const filtered = Array.from(bySlug.values()).filter((p) =>
-		includeDrafts ? true : !p.data.draft,
-	);
+	let hideDemo = false;
+	if (!includeDrafts) {
+		const settings = await getEffectiveSettings();
+		hideDemo = Boolean(settings.hideDemoPosts);
+	}
+
+	const filtered = Array.from(bySlug.values()).filter((p) => {
+		if (!includeDrafts && p.data.draft) return false;
+		if (!includeDrafts && hideDemo && p.source === "static") return false;
+		return true;
+	});
 
 	filtered.sort((a, b) => {
 		if (a.data.pinned && !b.data.pinned) return -1;

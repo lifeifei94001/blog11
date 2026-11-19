@@ -1,7 +1,7 @@
 // 音乐播放器配置
 export type MusicPlayerConfig = {
-	// 使用方式：'meting' 或 'local'
-	mode?: "meting" | "local"; // "meting" 使用 Meting API，"local" 使用本地音乐列表
+	// 使用方式：'meting' | 'audius' | 'custom' | 'local'
+	mode?: "meting" | "audius" | "custom" | "local"; // "meting" 使用 Meting API，"audius" 使用 Audius 免费全球歌源，"custom" 使用后台自定义歌单，"local" 使用本地音乐列表
 
 	// 默认音量 (0-1)
 	volume?: number;

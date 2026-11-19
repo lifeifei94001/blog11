@@ -24,7 +24,6 @@ import {
 	profileConfig,
 	siteConfig,
 } from "@/config";
-import { getEffectiveSettings } from "@/lib/blog-store";
 import {
 	BANNER_HEIGHT,
 	BANNER_HEIGHT_HOME,
@@ -33,6 +32,7 @@ import {
 	PAGE_WIDTH,
 } from "@/constants/constants";
 import { defaultFavicons } from "@/constants/icon";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import type { Favicon } from "@/types/config";
 import { isHomePage } from "@/utils/layout-utils";
 import { getAuthorAvatarUrl, getSiteLogo } from "@/utils/schema-image";
@@ -171,7 +171,7 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
 ---
 
 <!doctype html>
-<html lang={siteLang} class="bg-(--page-bg) text-[14px] md:text-[16px]" data-wallpaper-mode={backgroundWallpaper.mode} data-fullscreen-layout={fullscreenLayout} data-has-wallpaper={hasWallpaper ? "" : undefined} data-tag-style={siteConfig.tagStyle ?? "pill"} data-category-style={siteConfig.categoryStyle ?? "rectangle"}>
+<html lang={siteLang} class="bg-(--page-bg) text-[14px] md:text-[16px]" data-wallpaper-mode={runtimeSettings.wallpaperMode || backgroundWallpaper.mode} data-fullscreen-layout={fullscreenLayout} data-has-wallpaper={hasWallpaper ? "" : undefined} data-tag-style={siteConfig.tagStyle ?? "pill"} data-category-style={siteConfig.categoryStyle ?? "rectangle"}>
   <head>
     <meta charset="UTF-8" />
     <style is:inline>
@@ -362,7 +362,7 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
         PAGE_WIDTH,
         configHue,
         defaultMode: siteConfig.themeColor.defaultMode ?? "light",
-        defaultWallpaperMode: backgroundWallpaper.mode,
+        defaultWallpaperMode: runtimeSettings.wallpaperMode || backgroundWallpaper.mode,
         isWallpaperSwitchable:
           displaySettingsConfig.wallpaperModeSwitchable,
         isFullscreenLayoutSwitchable:
@@ -574,13 +574,13 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
     <!-- 页面顶部渐变高光效果 - 只在full和semifull模式下显示 -->
     {shouldShowTopHighlight && <div class="top-gradient-highlight" />}
     <ConfigCarrier />
-    <MusicManager />
+    <MusicManager runtimeSettings={runtimeSettings} />
     <slot />
 
     <!-- 播放器视图脚本：必须在 <slot /> 之后（解析到它时所有 widget 的 DOM 要已存在），
          且在 MusicManager 之后（swup 重跑按文档顺序，window.__fireflyMusic 得先就位） -->
     {(musicPlayerConfig.showInNavbar || musicPlayerConfig.showInSidebar !== false) && (
-      <MusicPlayerView />
+      <MusicPlayerView runtimeSettings={runtimeSettings} />
     )}
 
 

@@ -17,8 +17,9 @@ import {
 	sidebarLayoutConfig,
 	siteConfig,
 } from "@/config";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import { getBannerVisibilityState } from "@/utils/banner-visibility-utils";
-import { getBackgroundImages, isHomePage } from "@/utils/layout-utils";
+import { isHomePage, resolveBackgroundImages } from "@/utils/layout-utils";
 import { resolveNavMenuLinks } from "@/utils/nav-menu-utils";
 import { getEffectiveSidebarState } from "@/utils/sidebar-effective-utils";
 import Layout from "./Layout.astro";
@@ -50,7 +51,11 @@ interface Props {
 	hideSidebars?: boolean;
 }
 
-const backgroundImages = getBackgroundImages();
+const runtimeSettings = await getEffectiveSettings();
+const backgroundImages = resolveBackgroundImages(
+	runtimeSettings.bannerDesktopImages,
+	runtimeSettings.bannerMobileImages,
+);
 
 const {
 	title,
@@ -75,12 +80,15 @@ const isPostPage = !!postSlug;
 const shouldRenderCategoryBar = !!siteConfig.categoryBar && !hideSidebars;
 const navbarWidthFull = siteConfig.navbar.widthFull ?? false;
 
-const banner = getBannerVisibilityState({
-	isHomePage: isHomePageCheck,
-	isPostPage,
-	title,
-	bannerPostMeta,
-});
+const banner = getBannerVisibilityState(
+	{
+		isHomePage: isHomePageCheck,
+		isPostPage,
+		title,
+		bannerPostMeta,
+	},
+	runtimeSettings,
+);
 const sidebar = getEffectiveSidebarState({ isPostPage });
 
 const { hasWallpaper } = banner;

@@ -60,6 +60,20 @@ export const POST: APIRoute = async ({ request }) => {
 			announcementContent: body.announcementContent,
 			bannerTitle: body.bannerTitle,
 			bannerSubtitles: body.bannerSubtitles,
+			bannerDesktopImages: body.bannerDesktopImages,
+			bannerMobileImages: body.bannerMobileImages,
+			wallpaperMode: body.wallpaperMode,
+			bannerDimOpacity: body.bannerDimOpacity,
+			bannerCarouselEnable: body.bannerCarouselEnable,
+			siteStartDate: body.siteStartDate,
+			hideDemoPosts: body.hideDemoPosts,
+			musicMode: body.musicMode,
+			musicServer: body.musicServer,
+			musicType: body.musicType,
+			musicId: body.musicId,
+			musicAudiusQuery: body.musicAudiusQuery,
+			musicShowLyrics: body.musicShowLyrics,
+			musicCustomPlaylist: body.musicCustomPlaylist,
 		});
 		return json({ ok: true, settings: saved });
 	} catch (err) {

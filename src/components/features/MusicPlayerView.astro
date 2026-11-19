@@ -2,6 +2,13 @@
 import { musicPlayerConfig } from "@/config/musicConfig";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
+import type { SiteRuntimeSettings } from "@/lib/blog-store";
+
+interface Props {
+	runtimeSettings?: SiteRuntimeSettings;
+}
+
+const { runtimeSettings } = Astro.props;
 
 // MusicPlayer 的视图控制脚本只需要发一份：页面上可能同时有导航栏面板和侧栏
 // 两个 widget，脚本内容除 widgetId 外完全一致。这里统一发一次，由脚本自己
@@ -11,9 +18,13 @@ import { i18n } from "@/i18n/translation";
 // content:replace 时重新执行全文档的内联脚本，侧栏 widget 换页后靠这个重跑完成
 // 初始化；改成 bundled module 只会执行一次，会静默失效。
 const config = musicPlayerConfig;
+const showLyrics =
+	typeof runtimeSettings?.musicShowLyrics === "boolean"
+		? runtimeSettings.musicShowLyrics
+		: (config.showLyrics ?? true);
 
 const viewConfigStr = JSON.stringify({
-	showLyrics: config.showLyrics ?? true,
+	showLyrics,
 	i18n: {
 		noPlaying: i18n(I18nKey.musicNoPlaying),
 		lyrics: i18n(I18nKey.musicLyrics),

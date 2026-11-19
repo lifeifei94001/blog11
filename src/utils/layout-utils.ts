@@ -45,6 +45,31 @@ export const getBackgroundImages = (): BackgroundImages => {
 	};
 };
 
+// 合并运行时自定义壁纸与静态默认配置；未设置自定义壁纸时回退默认配置
+export const resolveBackgroundImages = (
+	customDesktop?: string[],
+	customMobile?: string[],
+): BackgroundImages => {
+	const desktopCustom = (customDesktop ?? [])
+		.map((item) => item.trim())
+		.filter(Boolean);
+	const mobileCustom = (customMobile ?? [])
+		.map((item) => item.trim())
+		.filter(Boolean);
+
+	if (desktopCustom.length > 0 || mobileCustom.length > 0) {
+		const desktop = desktopCustom.length > 0 ? desktopCustom : mobileCustom;
+		const mobile = mobileCustom.length > 0 ? mobileCustom : desktopCustom;
+		return {
+			desktop,
+			mobile,
+			isMultiple: desktop.length > 1 || mobile.length > 1,
+		};
+	}
+
+	return getBackgroundImages();
+};
+
 // 类型守卫函数
 export const isBannerSrcObject = (
 	src:

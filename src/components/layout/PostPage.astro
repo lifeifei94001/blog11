@@ -1,5 +1,5 @@
 ---
-import { getPostUrlBySlug } from "@utils/url-utils";
+import { getPostUrlBySlug, url } from "@utils/url-utils";
 import PostCard from "@/components/layout/PostCard.astro";
 import { siteConfig } from "@/config";
 import type { UnifiedPost } from "@/lib/blog-store";
@@ -58,6 +58,20 @@ const coverPositionClass =
         style={`animation-delay: calc(var(--content-delay) + ${delay++ * interval}ms);`}
       />
     ))
+  }
+  {
+    page.data.length === 0 && (
+      <div class="card-base p-10 text-center flex flex-col items-center justify-center gap-3 col-span-full">
+        <p class="text-base font-bold text-75">暂无已发布的文章</p>
+        <p class="text-xs text-50">你可以前往后台管理发布第一篇原创文章，或在设置中取消隐藏示例文章。</p>
+        <a
+          href={url("/admin/")}
+          class="mt-1 px-4 py-2 rounded-xl bg-(--primary) text-white dark:text-black/80 text-xs font-semibold hover:opacity-90 transition"
+        >
+          前往后台写作
+        </a>
+      </div>
+    )
   }
 </div>
 
