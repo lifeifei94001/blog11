@@ -1,5 +1,4 @@
 ---
-import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Icon } from "astro-icon/components";
 import ci from "ci-info";
@@ -10,6 +9,7 @@ import { i18n } from "@/i18n/translation";
 import type { WidgetComponentConfig } from "@/types/config";
 import { detectBuildPlatform } from "@/utils/build-platform";
 import { formatDateI18nWithTime } from "@/utils/date-utils";
+import pkg from "../../../package.json";
 
 interface Props {
 	class?: string;
@@ -23,14 +23,8 @@ const showTitle = widgetConfig?.showTitle !== false;
 
 // ---- 构建时收集版本和环境信息 ----
 
-// 博客版本（从 package.json 读取）
-let blogVersion = "unknown";
-try {
-	const pkg = JSON.parse(
-		readFileSync(new URL("../../../package.json", import.meta.url), "utf-8"),
-	);
-	blogVersion = pkg.version || "Firefly unknown";
-} catch {}
+// 博客版本（静态导入 package.json，确保 Vercel Serverless 打包后也能正确显示版本号）
+const blogVersion = pkg.version || "unknown";
 
 // Astro 版本（从已安装的 astro 包读取）
 let astroVersion = "unknown";

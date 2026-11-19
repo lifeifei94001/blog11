@@ -90,7 +90,7 @@ export const GET: APIRoute = async ({ site }) => {
 	const enabledPages = KEY_PAGES.filter(
 		(pageEntry) => !pageEntry.pageKey || siteConfig.pages[pageEntry.pageKey],
 	);
-	const posts = await getUnifiedPosts(false);
+	const posts = (await getUnifiedPosts(false)).filter((p) => !p.data.password);
 	const recentPosts = posts.slice(0, RECENT_POSTS_COUNT);
 
 	const lines: string[] = [

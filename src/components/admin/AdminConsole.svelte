@@ -152,7 +152,7 @@ let commandOpen = $state(false);
 let posts = $state<PostItem[]>([]);
 let postsLoading = $state(false);
 let postSearch = $state("");
-let postFilter = $state<"all" | "published" | "draft">("all");
+let postFilter = $state<"all" | "published" | "draft" | "encrypted">("all");
 let selectedSlug = $state<string | null>(null);
 let postSaving = $state(false);
 let isNewPost = $state(false);
@@ -172,6 +172,7 @@ let formPinned = $state(false);
 let formAuthor = $state("酷酷dcl");
 let formPassword = $state("");
 let formPasswordHint = $state("");
+let showPostPassword = $state(false);
 
 // Dynamics state
 let dynamics = $state<DynamicItem[]>([]);
@@ -272,6 +273,7 @@ let filteredPosts = $derived.by(() => {
 	return posts.filter((p) => {
 		if (postFilter === "published" && p.draft) return false;
 		if (postFilter === "draft" && !p.draft) return false;
+		if (postFilter === "encrypted" && !p.password) return false;
 		if (!q) return true;
 		return (
 			p.title.toLowerCase().includes(q) ||
@@ -523,6 +525,7 @@ function selectPost(p: PostItem) {
 	formAuthor = p.author || settingsForm.profileName || "酷酷dcl";
 	formPassword = p.password;
 	formPasswordHint = p.passwordHint;
+	showPostPassword = false;
 }
 
 function startNewPost() {
@@ -543,6 +546,7 @@ function startNewPost() {
 	formAuthor = settingsForm.profileName || "酷酷dcl";
 	formPassword = "";
 	formPasswordHint = "";
+	showPostPassword = false;
 }
 
 async function handleSavePost(e: Event) {
@@ -585,7 +589,7 @@ async function handleSavePost(e: Event) {
 				draft: formDraft,
 				pinned: formPinned,
 				author: formAuthor.trim(),
-				password: formPassword,
+				password: formPassword.trim(),
 				passwordHint: formPasswordHint.trim(),
 			}),
 		});
@@ -1356,10 +1360,10 @@ $effect(() => {
 					/>
 
 					<div class="flex gap-1.5 text-xs">
-						{#each [["all", "全部"], ["published", "已发布"], ["draft", "草稿"]] as [k, label]}
+						{#each [["all", "全部"], ["published", "已发布"], ["draft", "草稿"], ["encrypted", "加密"]] as [k, label]}
 							<button
 								type="button"
-								onclick={() => (postFilter = k as "all" | "published" | "draft")}
+								onclick={() => (postFilter = k as "all" | "published" | "draft" | "encrypted")}
 								class="flex-1 py-1.5 rounded-lg transition cursor-pointer {postFilter === k ? 'bg-(--primary)/15 text-(--primary) font-semibold' : 'text-50 hover:bg-black/5 dark:hover:bg-white/5'}"
 							>
 								{label}
@@ -1386,6 +1390,9 @@ $effect(() => {
 									<div class="flex items-start justify-between gap-2">
 										<p class="text-sm font-semibold text-90 line-clamp-1">{item.title}</p>
 										<div class="flex items-center gap-1 shrink-0">
+											{#if item.password}
+												<span class="px-1.5 py-0.5 text-[10px] rounded bg-(--primary)/15 text-(--primary)">🔒 加密</span>
+											{/if}
 											{#if item.pinned}
 												<span class="px-1.5 py-0.5 text-[10px] rounded bg-amber-500/15 text-amber-500">置顶</span>
 											{/if}
@@ -1495,6 +1502,68 @@ $effect(() => {
 									<span>存为草稿</span>
 								</label>
 							</div>
+						</div>
+
+						<!-- 隐私与密码保护 -->
+						<div class="rounded-xl border border-black/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] p-3.5 space-y-2.5">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<div class="flex items-center gap-2">
+									<Icon icon="material-symbols:lock-outline" class="text-base text-(--primary)" />
+									<span class="text-xs font-semibold text-90">隐私与密码保护</span>
+									{#if formPassword.trim()}
+										<span class="px-2 py-0.5 text-[11px] rounded-full bg-(--primary)/15 text-(--primary) font-medium">已开启密码保护</span>
+									{:else}
+										<span class="px-2 py-0.5 text-[11px] rounded-full bg-black/5 dark:bg-white/10 text-50">公开访问</span>
+									{/if}
+								</div>
+								{#if formPassword || formPasswordHint}
+									<button
+										type="button"
+										onclick={() => {
+											formPassword = "";
+											formPasswordHint = "";
+										}}
+										class="text-xs text-rose-500 hover:underline cursor-pointer"
+									>
+										取消加密
+									</button>
+								{/if}
+							</div>
+							<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+								<div>
+									<label class="admin-label" for="post-password">访问密码（留空即公开）</label>
+									<div class="flex gap-1.5">
+										<input
+											id="post-password"
+											type={showPostPassword ? "text" : "password"}
+											autocomplete="new-password"
+											bind:value={formPassword}
+											placeholder="输入密码后正文将加密保护"
+											class="admin-input w-full"
+										/>
+										<button
+											type="button"
+											onclick={() => (showPostPassword = !showPostPassword)}
+											class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+										>
+											{showPostPassword ? "隐藏" : "显示"}
+										</button>
+									</div>
+								</div>
+								<div>
+									<label class="admin-label" for="post-password-hint">密码提示（可选）</label>
+									<input
+										id="post-password-hint"
+										type="text"
+										bind:value={formPasswordHint}
+										placeholder="给访客的提示信息（切勿直接写明密码）"
+										class="admin-input w-full"
+									/>
+								</div>
+							</div>
+							<p class="text-[11px] text-50">
+								设置密码后保存生效：正文采用 AES-256-GCM 加密，列表摘要、站内搜索与目录均不会泄露正文内容。
+							</p>
 						</div>
 
 						<div>

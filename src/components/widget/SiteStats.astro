@@ -60,7 +60,9 @@ function formatNumber(num: number): string {
 	return num.toLocaleString();
 }
 
-// 获取「最后活动」时间：取每篇文章 published 与 updated 中较新的那个，再从全站所有文章里取最大值。这样新发文章和修改老文章都会刷新该字段。
+// 获取「最后活动」时间：取每篇文章 published 与 updated 中较新的那个，再从全站所有文章里取最大值。
+// 过滤 2000 年前的占位示例日期（如 1970-01-01），避免出现「最后活动 20774 天前」的异常显示。
+const MIN_VALID_ACTIVITY_TIME = Date.UTC(2000, 0, 1);
 const getActivityDate = (post: (typeof posts)[number]): Date => {
 	const { published, updated } = post.data;
 	if (updated && updated > published) return updated;
@@ -69,11 +71,18 @@ const getActivityDate = (post: (typeof posts)[number]): Date => {
 
 const lastActivityDate = posts.reduce<Date | null>((latest, post) => {
 	const current = getActivityDate(post);
+	if (current.getTime() < MIN_VALID_ACTIVITY_TIME) return latest;
 	if (!latest || current > latest) return current;
 	return latest;
 }, null);
 
-const lastPostDate = lastActivityDate ? lastActivityDate.toISOString() : null;
+const fallbackStartDate = new Date(siteStartDate);
+const effectiveActivityDate =
+	lastActivityDate ??
+	(Number.isNaN(fallbackStartDate.getTime()) ? null : fallbackStartDate);
+const lastPostDate = effectiveActivityDate
+	? effectiveActivityDate.toISOString()
+	: null;
 
 const todayText = i18n(I18nKey.today);
 
