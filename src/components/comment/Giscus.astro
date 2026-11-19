@@ -1,11 +1,25 @@
 ---
 import { commentConfig } from "@/config";
 
+interface Props {
+	repo?: string;
+	repoId?: string;
+	category?: string;
+	categoryId?: string;
+}
+
 if (!commentConfig?.giscus) {
 	throw new Error("Giscus comments are not configured");
 }
 
-const giscus = commentConfig.giscus;
+const baseGiscus = commentConfig.giscus;
+const giscus = {
+	...baseGiscus,
+	repo: Astro.props.repo || baseGiscus.repo,
+	repoId: Astro.props.repoId || baseGiscus.repoId,
+	category: Astro.props.category || baseGiscus.category,
+	categoryId: Astro.props.categoryId || baseGiscus.categoryId,
+};
 const lightTheme = "light";
 const darkTheme = "dark";
 ---

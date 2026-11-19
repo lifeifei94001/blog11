@@ -721,7 +721,7 @@ const seriesData = await getUnifiedSeriesPosts(entry);
   }
 
   <!-- 评论 -->
-  {entry.data.comment && !entry.data.password && <Comment customPath={`/posts/${entry.slug}`} title={entry.data.title} />}
+  {entry.data.comment && !entry.data.password && runtimeSettings.commentType !== "none" && runtimeSettings.commentEnablePosts !== false && <Comment customPath={`/posts/${entry.slug}`} title={entry.data.title} />}
 
   <!-- 文章顶部阅读进度条 -->
   <div id="post-reading-progress" class="fixed top-0 left-0 h-[3px] w-0 bg-(--primary) z-[1200] transition-[width] duration-75 pointer-events-none" aria-hidden="true"></div>

@@ -6,30 +6,29 @@ import { galleryConfig, siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
+import { getUnifiedGalleryAlbums } from "@/lib/blog-store";
 import "@/styles/pages/gallery-album.css";
 import { getAlbumCover, scanAlbumPhotos } from "@/utils/gallery-utils";
 import { getLqipProps } from "@/utils/lqip-utils";
 import { url } from "@/utils/url-utils";
+
+export const prerender = false;
 
 // 检查页面是否启用
 if (!siteConfig.pages.gallery) {
 	return Astro.redirect("/404/");
 }
 
-export function getStaticPaths() {
-	return galleryConfig.albums.map((album) => ({
-		params: { album: album.id },
-	}));
-}
-
-const { album: albumId } = Astro.params;
-const albumMeta = galleryConfig.albums.find((a) => a.id === albumId);
+const albumId = (Astro.params.album || "").replace(/^\/+|\/+$/g, "");
+const configuredAlbums = await getUnifiedGalleryAlbums(false);
+const albumMeta = configuredAlbums.find((a) => a.id === albumId);
 
 if (!albumMeta) {
-	return Astro.redirect("/404/");
+	Astro.response.status = 404;
+	return Astro.rewrite("/404/");
 }
 
-const photos = scanAlbumPhotos(albumMeta.id);
+const photos = scanAlbumPhotos(albumMeta.id, albumMeta.extraPhotos);
 const cover = getAlbumCover(albumMeta, photos);
 const columnWidth = galleryConfig.columnWidth || 240;
 

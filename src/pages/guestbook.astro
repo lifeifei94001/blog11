@@ -7,7 +7,10 @@ import { commentConfig, siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import "@/styles/pages/common.css";
+
+export const prerender = false;
 
 // 检查页面是否启用
 if (!siteConfig.pages.guestbook) {
@@ -22,8 +25,13 @@ if (!guestbookPost) {
 
 const { Content } = await render(guestbookPost);
 
-// 检查评论系统是否启用
-const isCommentEnabled = commentConfig?.type && commentConfig.type !== "none";
+// 检查评论系统是否启用（优先读取后台动态设置）
+const runtimeSettings = await getEffectiveSettings();
+const effectiveCommentType =
+	runtimeSettings.commentType || commentConfig?.type || "none";
+const isCommentEnabled =
+	effectiveCommentType !== "none" &&
+	runtimeSettings.commentEnableGuestbook !== false;
 
 // 页面标题和描述
 const title = i18n(I18nKey.guestbook);

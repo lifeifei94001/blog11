@@ -2,6 +2,8 @@ import { type CollectionEntry, getCollection } from "astro:content";
 import {
 	announcementConfig,
 	backgroundWallpaper,
+	commentConfig,
+	galleryConfig,
 	musicPlayerConfig,
 	profileConfig,
 	siteConfig,
@@ -19,6 +21,31 @@ export interface MusicTrackInput {
 	url: string;
 	cover?: string;
 	lrc?: string;
+}
+
+export interface GalleryAlbumConfigItem {
+	id: string;
+	name: string;
+	description: string;
+	location: string;
+	date: string;
+	cover: string;
+	tags: string[];
+	password: string;
+	passwordHint: string;
+	hidden: boolean;
+	extraPhotos: string[];
+	isBuiltin?: boolean;
+}
+
+export interface BlogCommentItem {
+	id: string;
+	pagePath: string;
+	authorName: string;
+	authorWebsite: string;
+	content: string;
+	isAdmin: boolean;
+	createdAt: string;
 }
 
 export interface SiteRuntimeSettings {
@@ -47,6 +74,25 @@ export interface SiteRuntimeSettings {
 	musicAudiusQuery: string;
 	musicShowLyrics: boolean;
 	musicCustomPlaylist: MusicTrackInput[];
+	commentType:
+		| "none"
+		| "native"
+		| "twikoo"
+		| "waline"
+		| "giscus"
+		| "artalk"
+		| "disqus";
+	commentEnableGuestbook: boolean;
+	commentEnablePosts: boolean;
+	twikooEnvId: string;
+	walineServerUrl: string;
+	artalkServer: string;
+	giscusRepo: string;
+	giscusRepoId: string;
+	giscusCategory: string;
+	giscusCategoryId: string;
+	disqusShortname: string;
+	galleryAlbumConfigs: GalleryAlbumConfigItem[];
 }
 
 export interface UnifiedPostData {
@@ -128,6 +174,94 @@ const SETTINGS_KEY = "runtime_settings";
 let cachedSettings: { data: SiteRuntimeSettings; expiresAt: number } | null =
 	null;
 
+function getDefaultGalleryAlbumConfigs(): GalleryAlbumConfigItem[] {
+	return (galleryConfig.albums || []).map((album) => ({
+		id: album.id,
+		name: album.name,
+		description: album.description || "",
+		location: album.location || "",
+		date: album.date || "",
+		cover: album.cover || "",
+		tags: Array.isArray(album.tags) ? [...album.tags] : [],
+		password: album.password || "",
+		passwordHint: album.passwordHint || "",
+		hidden: false,
+		extraPhotos: [],
+		isBuiltin: true,
+	}));
+}
+
+function mergeGalleryAlbumConfigs(
+	saved: unknown,
+	defaults: GalleryAlbumConfigItem[],
+): GalleryAlbumConfigItem[] {
+	if (!Array.isArray(saved) || saved.length === 0) return defaults;
+	const savedMap = new Map<string, Partial<GalleryAlbumConfigItem>>();
+	for (const raw of saved) {
+		const item = raw as Partial<GalleryAlbumConfigItem>;
+		const id = String(item?.id || "").trim();
+		if (id) savedMap.set(id, item);
+	}
+
+	const merged: GalleryAlbumConfigItem[] = defaults.map((def) => {
+		const over = savedMap.get(def.id);
+		if (!over) return def;
+		savedMap.delete(def.id);
+		return {
+			id: def.id,
+			name:
+				typeof over.name === "string" && over.name.trim()
+					? over.name.trim()
+					: def.name,
+			description:
+				typeof over.description === "string"
+					? over.description
+					: def.description,
+			location:
+				typeof over.location === "string" ? over.location : def.location,
+			date: typeof over.date === "string" ? over.date : def.date,
+			cover: typeof over.cover === "string" ? over.cover.trim() : def.cover,
+			tags: Array.isArray(over.tags)
+				? over.tags.map((t) => String(t).trim()).filter(Boolean)
+				: def.tags,
+			password:
+				typeof over.password === "string" ? over.password : def.password,
+			passwordHint:
+				typeof over.passwordHint === "string"
+					? over.passwordHint
+					: def.passwordHint,
+			hidden: Boolean(over.hidden),
+			extraPhotos: Array.isArray(over.extraPhotos)
+				? over.extraPhotos.map((p) => String(p).trim()).filter(Boolean)
+				: [],
+			isBuiltin: true,
+		};
+	});
+
+	for (const [id, item] of savedMap) {
+		merged.push({
+			id,
+			name: String(item.name || id).trim(),
+			description: String(item.description || "").trim(),
+			location: String(item.location || "").trim(),
+			date: String(item.date || "").trim(),
+			cover: String(item.cover || "").trim(),
+			tags: Array.isArray(item.tags)
+				? item.tags.map((t) => String(t).trim()).filter(Boolean)
+				: [],
+			password: typeof item.password === "string" ? item.password : "",
+			passwordHint:
+				typeof item.passwordHint === "string" ? item.passwordHint : "",
+			hidden: Boolean(item.hidden),
+			extraPhotos: Array.isArray(item.extraPhotos)
+				? item.extraPhotos.map((p) => String(p).trim()).filter(Boolean)
+				: [],
+			isBuiltin: false,
+		});
+	}
+	return merged;
+}
+
 export function getDefaultRuntimeSettings(): SiteRuntimeSettings {
 	const rawSubtitle = backgroundWallpaper.common?.homeText?.subtitle;
 	const bannerSubtitles = Array.isArray(rawSubtitle)
@@ -144,6 +278,15 @@ export function getDefaultRuntimeSettings(): SiteRuntimeSettings {
 		rawType === "song" || rawType === "search" || rawType === "album"
 			? rawType
 			: "playlist";
+	const rawCommentType = commentConfig.type;
+	const defaultCommentType: SiteRuntimeSettings["commentType"] =
+		rawCommentType === "twikoo" ||
+		rawCommentType === "waline" ||
+		rawCommentType === "giscus" ||
+		rawCommentType === "artalk" ||
+		rawCommentType === "disqus"
+			? rawCommentType
+			: "native";
 	return {
 		siteTitle: siteConfig.title,
 		siteSubtitle: siteConfig.subtitle,
@@ -171,6 +314,18 @@ export function getDefaultRuntimeSettings(): SiteRuntimeSettings {
 		musicAudiusQuery: "",
 		musicShowLyrics: musicPlayerConfig.showLyrics ?? true,
 		musicCustomPlaylist: [],
+		commentType: defaultCommentType,
+		commentEnableGuestbook: true,
+		commentEnablePosts: true,
+		twikooEnvId: commentConfig.twikoo?.envId || "",
+		walineServerUrl: commentConfig.waline?.serverURL || "",
+		artalkServer: commentConfig.artalk?.server || "",
+		giscusRepo: commentConfig.giscus?.repo || "",
+		giscusRepoId: commentConfig.giscus?.repoId || "",
+		giscusCategory: commentConfig.giscus?.category || "",
+		giscusCategoryId: commentConfig.giscus?.categoryId || "",
+		disqusShortname: commentConfig.disqus?.shortname || "",
+		galleryAlbumConfigs: getDefaultGalleryAlbumConfigs(),
 	};
 }
 
@@ -201,6 +356,10 @@ export async function getEffectiveSettings(): Promise<SiteRuntimeSettings> {
 				...defaults,
 				...Object.fromEntries(
 					Object.entries(parsed).filter(([, v]) => v !== undefined),
+				),
+				galleryAlbumConfigs: mergeGalleryAlbumConfigs(
+					parsed.galleryAlbumConfigs,
+					defaults.galleryAlbumConfigs,
 				),
 			};
 			cachedSettings = { data: merged, expiresAt: now + 10_000 };
@@ -282,6 +441,13 @@ export async function saveEffectiveSettings(
 			patch.musicCustomPlaylist,
 			current.musicCustomPlaylist,
 		),
+		galleryAlbumConfigs:
+			patch.galleryAlbumConfigs !== undefined
+				? mergeGalleryAlbumConfigs(
+						patch.galleryAlbumConfigs,
+						getDefaultGalleryAlbumConfigs(),
+					)
+				: current.galleryAlbumConfigs,
 	};
 	await tursoExecute(
 		`INSERT INTO site_settings (key, value_json, updated_at)
@@ -803,4 +969,125 @@ export async function getUnifiedRelatedPosts(
 
 	scored.sort((a, b) => b.total - a.total);
 	return scored.slice(0, maxCount).map((s) => s.post);
+}
+
+export async function getUnifiedGalleryAlbums(
+	includeHidden = false,
+): Promise<GalleryAlbumConfigItem[]> {
+	const settings = await getEffectiveSettings();
+	const list = settings.galleryAlbumConfigs || getDefaultGalleryAlbumConfigs();
+	return includeHidden ? list : list.filter((a) => !a.hidden);
+}
+
+function normalizeCommentPath(rawPath: string): string {
+	const cleaned = rawPath.trim().split("?")[0].split("#")[0];
+	if (!cleaned || cleaned === "/") return "/";
+	const withLead = cleaned.startsWith("/") ? cleaned : `/${cleaned}`;
+	return withLead.endsWith("/") ? withLead : `${withLead}/`;
+}
+
+export async function listComments(
+	rawPath?: string,
+	limit = 100,
+): Promise<BlogCommentItem[]> {
+	if (!isTursoConfigured()) return [];
+	await ensureTursoSchema();
+	const safeLimit = Math.min(200, Math.max(1, Math.trunc(limit)));
+	const res = rawPath
+		? await tursoExecute(
+				`SELECT id, page_path, author_name, author_website, content, is_admin, created_at
+				 FROM blog_comments
+				 WHERE page_path = ? AND approved = 1
+				 ORDER BY created_at DESC
+				 LIMIT ?`,
+				[normalizeCommentPath(rawPath), safeLimit],
+			)
+		: await tursoExecute(
+				`SELECT id, page_path, author_name, author_website, content, is_admin, created_at
+				 FROM blog_comments
+				 WHERE approved = 1
+				 ORDER BY created_at DESC
+				 LIMIT ?`,
+				[safeLimit],
+			);
+
+	return res.rows.map((row) => ({
+		id: String(row.id || ""),
+		pagePath: String(row.page_path || "/"),
+		authorName: String(row.author_name || "匿名访客"),
+		authorWebsite: String(row.author_website || ""),
+		content: String(row.content || ""),
+		isAdmin: Number(row.is_admin ?? 0) === 1,
+		createdAt: String(row.created_at || ""),
+	}));
+}
+
+export async function createComment(input: {
+	pagePath: string;
+	authorName: string;
+	authorEmail?: string;
+	authorWebsite?: string;
+	content: string;
+	isAdmin?: boolean;
+}): Promise<BlogCommentItem> {
+	if (!isTursoConfigured()) {
+		throw new Error("云端数据库尚未在环境变量中配置，无法保存留言");
+	}
+	await ensureTursoSchema();
+
+	const pagePath = normalizeCommentPath(input.pagePath || "/guestbook/");
+	const authorName = input.authorName.trim().slice(0, 40);
+	const authorEmail = (input.authorEmail || "").trim().slice(0, 100);
+	let authorWebsite = (input.authorWebsite || "").trim().slice(0, 200);
+	if (authorWebsite && !/^https?:\/\//i.test(authorWebsite)) {
+		authorWebsite = `https://${authorWebsite}`;
+	}
+	const content = input.content.trim().slice(0, 1200);
+
+	if (!authorName) {
+		throw new Error("请填写昵称");
+	}
+	if (!content) {
+		throw new Error("留言内容不能为空");
+	}
+
+	const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+	const createdAt = utcNowStr();
+	const isAdminFlag = input.isAdmin ? 1 : 0;
+
+	await tursoExecute(
+		`INSERT INTO blog_comments (
+			id, page_path, author_name, author_email, author_website, content, is_admin, approved, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+		[
+			id,
+			pagePath,
+			authorName,
+			authorEmail,
+			authorWebsite,
+			content,
+			isAdminFlag,
+			createdAt,
+		],
+	);
+
+	return {
+		id,
+		pagePath,
+		authorName,
+		authorWebsite,
+		content,
+		isAdmin: Boolean(input.isAdmin),
+		createdAt,
+	};
+}
+
+export async function deleteComment(rawId: string): Promise<void> {
+	if (!isTursoConfigured()) {
+		throw new Error("云端数据库尚未在环境变量中配置，无法删除留言");
+	}
+	await ensureTursoSchema();
+	const id = rawId.trim();
+	if (!id) throw new Error("留言 ID 不能为空");
+	await tursoExecute("DELETE FROM blog_comments WHERE id = ?", [id]);
 }

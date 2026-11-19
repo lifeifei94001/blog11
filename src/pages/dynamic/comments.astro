@@ -2,13 +2,20 @@
 import Comment from "@/components/comment/index.astro";
 import { commentConfig, dynamicConfig, siteConfig } from "@/config";
 import Layout from "@/layouts/Layout.astro";
+import { getEffectiveSettings } from "@/lib/blog-store";
 import "@/styles/pages/dynamic-comments.css";
+
+export const prerender = false;
+
+const runtimeSettings = await getEffectiveSettings();
+const effectiveCommentType =
+	runtimeSettings.commentType || commentConfig?.type || "none";
 
 if (
 	!siteConfig.pages.dynamic ||
 	dynamicConfig.showComment === false ||
-	!commentConfig.type ||
-	commentConfig.type === "none"
+	effectiveCommentType === "none" ||
+	runtimeSettings.commentEnablePosts === false
 ) {
 	return Astro.redirect("/404/");
 }

@@ -273,6 +273,23 @@ export async function ensureTursoSchema(): Promise<boolean> {
 						updated_at TEXT NOT NULL
 					)`,
 				},
+				{
+					sql: `CREATE TABLE IF NOT EXISTS blog_comments (
+						id TEXT PRIMARY KEY,
+						page_path TEXT NOT NULL,
+						author_name TEXT NOT NULL,
+						author_email TEXT NOT NULL DEFAULT '',
+						author_website TEXT NOT NULL DEFAULT '',
+						content TEXT NOT NULL,
+						is_admin INTEGER NOT NULL DEFAULT 0,
+						approved INTEGER NOT NULL DEFAULT 1,
+						created_at TEXT NOT NULL
+					)`,
+				},
+				{
+					sql: `CREATE INDEX IF NOT EXISTS idx_blog_comments_path
+						ON blog_comments(page_path, created_at DESC)`,
+				},
 			]);
 		})().catch((err) => {
 			schemaReadyPromise = null;

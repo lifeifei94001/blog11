@@ -3,10 +3,12 @@ import { commentConfig, siteConfig } from "@/config";
 
 interface Props {
 	path: string;
+	server?: string;
 }
 
 const config = {
 	...commentConfig.artalk,
+	server: Astro.props.server || commentConfig.artalk?.server,
 	el: "#artalk",
 	site: siteConfig.title,
 	pageKey: Astro.props.path,

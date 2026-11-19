@@ -4,6 +4,7 @@ import { url } from "@/utils/url-utils";
 
 interface Props {
 	path: string;
+	envId?: string;
 }
 
 const twikooConfig = commentConfig.twikoo ?? { envId: "" };
@@ -13,6 +14,7 @@ const jsUrl =
 const cssUrl = twikooConfig.cssUrl;
 const config = {
 	...twikooConfig,
+	envId: Astro.props.envId || twikooConfig.envId,
 	el: "#tcomment",
 	path: Astro.props.path,
 };

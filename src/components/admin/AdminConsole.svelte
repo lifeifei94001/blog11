@@ -3,7 +3,7 @@ import { Marked } from "marked";
 import { onMount } from "svelte";
 import Icon from "@/components/common/Icon.svelte";
 
-type AdminTab = "posts" | "dynamics" | "media" | "settings";
+type AdminTab = "posts" | "dynamics" | "comments" | "media" | "settings";
 type EditorView = "split" | "edit" | "preview";
 
 interface PostItem {
@@ -52,6 +52,31 @@ interface MusicTrackItem {
 	lrc?: string;
 }
 
+interface GalleryAlbumItem {
+	id: string;
+	name: string;
+	description: string;
+	location: string;
+	date: string;
+	cover: string;
+	tags: string[];
+	password: string;
+	passwordHint: string;
+	hidden: boolean;
+	extraPhotos: string[];
+	isBuiltin?: boolean;
+}
+
+interface CommentItem {
+	id: string;
+	pagePath: string;
+	authorName: string;
+	authorWebsite: string;
+	content: string;
+	isAdmin: boolean;
+	createdAt: string;
+}
+
 interface SiteSettings {
 	siteTitle: string;
 	siteSubtitle: string;
@@ -78,6 +103,25 @@ interface SiteSettings {
 	musicAudiusQuery: string;
 	musicShowLyrics: boolean;
 	musicCustomPlaylist: MusicTrackItem[];
+	commentType:
+		| "none"
+		| "native"
+		| "twikoo"
+		| "waline"
+		| "giscus"
+		| "artalk"
+		| "disqus";
+	commentEnableGuestbook: boolean;
+	commentEnablePosts: boolean;
+	twikooEnvId: string;
+	walineServerUrl: string;
+	artalkServer: string;
+	giscusRepo: string;
+	giscusRepoId: string;
+	giscusCategory: string;
+	giscusCategoryId: string;
+	disqusShortname: string;
+	galleryAlbumConfigs: GalleryAlbumItem[];
 }
 
 const SESSION_CACHE_KEY = "dcl_admin_user_snapshot";
@@ -156,6 +200,8 @@ let showMediaPicker = $state<
 	| "banner-mobile"
 	| `music-url:${number}`
 	| `music-cover:${number}`
+	| `album-cover:${number}`
+	| `album-photo:${number}`
 >(null);
 let b2Testing = $state(false);
 let b2TestReport = $state<{ ok: boolean; text: string } | null>(null);
@@ -165,6 +211,13 @@ let musicTestResult = $state<{
 	message: string;
 	tracks: MusicTrackItem[];
 } | null>(null);
+let comments = $state<CommentItem[]>([]);
+let commentsLoading = $state(false);
+let commentSearch = $state("");
+let replyPagePath = $state("/guestbook/");
+let replyContent = $state("");
+let replySending = $state(false);
+let showAlbumPasswords = $state<Record<string, boolean>>({});
 
 // Settings state
 let settingsLoading = $state(false);
@@ -196,6 +249,18 @@ let settingsForm = $state<SiteSettings>({
 	musicAudiusQuery: "",
 	musicShowLyrics: true,
 	musicCustomPlaylist: [],
+	commentType: "native",
+	commentEnableGuestbook: true,
+	commentEnablePosts: true,
+	twikooEnvId: "",
+	walineServerUrl: "",
+	artalkServer: "",
+	giscusRepo: "",
+	giscusRepoId: "",
+	giscusCategory: "",
+	giscusCategoryId: "",
+	disqusShortname: "",
+	galleryAlbumConfigs: [],
 });
 let bannerSubtitlesText = $state("");
 let bannerDesktopText = $state("");
@@ -221,6 +286,17 @@ let filteredMedia = $derived.by(() => {
 	const q = mediaSearch.trim().toLowerCase();
 	if (!q) return mediaFiles;
 	return mediaFiles.filter((m) => m.fileName.toLowerCase().includes(q));
+});
+
+let filteredComments = $derived.by(() => {
+	const q = commentSearch.trim().toLowerCase();
+	if (!q) return comments;
+	return comments.filter(
+		(c) =>
+			c.authorName.toLowerCase().includes(q) ||
+			c.content.toLowerCase().includes(q) ||
+			c.pagePath.toLowerCase().includes(q),
+	);
 });
 
 function sanitizePreviewHtml(raw: string): string {
@@ -267,13 +343,14 @@ function setTab(tab: AdminTab) {
 function readInitialTab(): AdminTab {
 	if (typeof window === "undefined") return "posts";
 	const hashMatch = window.location.hash.match(
-		/tab=(posts|dynamics|media|settings)/,
+		/tab=(posts|dynamics|comments|media|settings)/,
 	);
 	if (hashMatch) return hashMatch[1] as AdminTab;
 	const saved = localStorage.getItem(TAB_STORAGE_KEY);
 	if (
 		saved === "posts" ||
 		saved === "dynamics" ||
+		saved === "comments" ||
 		saved === "media" ||
 		saved === "settings"
 	) {
@@ -337,7 +414,26 @@ async function handleApiResponse<T>(resp: Response): Promise<T> {
 }
 
 async function loadAllData() {
-	await Promise.all([loadPosts(), loadDynamics(), loadMedia(), loadSettings()]);
+	await Promise.all([
+		loadPosts(),
+		loadDynamics(),
+		loadComments(),
+		loadMedia(),
+		loadSettings(),
+	]);
+}
+
+async function loadComments() {
+	commentsLoading = true;
+	try {
+		const resp = await fetch("/api/admin/comments/");
+		const data = await handleApiResponse<{ comments: CommentItem[] }>(resp);
+		comments = data.comments;
+	} catch (err) {
+		notify("err", err instanceof Error ? err.message : "加载留言列表失败");
+	} finally {
+		commentsLoading = false;
+	}
 }
 
 async function loadPosts() {
@@ -686,9 +782,96 @@ function applyPickedMedia(item: MediaItem) {
 		if (settingsForm.musicCustomPlaylist[idx]) {
 			settingsForm.musicCustomPlaylist[idx].cover = item.url;
 		}
+	} else if (
+		typeof showMediaPicker === "string" &&
+		showMediaPicker.startsWith("album-cover:")
+	) {
+		const idx = Number(showMediaPicker.split(":")[1]);
+		if (settingsForm.galleryAlbumConfigs[idx]) {
+			settingsForm.galleryAlbumConfigs[idx].cover = item.url;
+		}
+	} else if (
+		typeof showMediaPicker === "string" &&
+		showMediaPicker.startsWith("album-photo:")
+	) {
+		const idx = Number(showMediaPicker.split(":")[1]);
+		if (settingsForm.galleryAlbumConfigs[idx]) {
+			settingsForm.galleryAlbumConfigs[idx].extraPhotos = [
+				...(settingsForm.galleryAlbumConfigs[idx].extraPhotos || []),
+				item.url,
+			];
+		}
 	}
 	showMediaPicker = null;
 	notify("ok", "已填入所选资源链接");
+}
+
+function addCustomAlbum() {
+	const suffix = Date.now().toString(36).slice(-4);
+	settingsForm.galleryAlbumConfigs = [
+		...settingsForm.galleryAlbumConfigs,
+		{
+			id: `album-${suffix}`,
+			name: `新建相册 ${suffix}`,
+			description: "",
+			location: "",
+			date: new Date().toISOString().slice(0, 10),
+			cover: "",
+			tags: [],
+			password: "",
+			passwordHint: "",
+			hidden: false,
+			extraPhotos: [],
+			isBuiltin: false,
+		},
+	];
+}
+
+function removeCustomAlbum(idx: number) {
+	settingsForm.galleryAlbumConfigs = settingsForm.galleryAlbumConfigs.filter(
+		(_, i) => i !== idx,
+	);
+}
+
+async function handleReplyComment(e: Event) {
+	e.preventDefault();
+	if (!replyContent.trim()) return;
+	replySending = true;
+	try {
+		const resp = await fetch("/api/admin/comments/", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				pagePath: replyPagePath.trim() || "/guestbook/",
+				authorName: settingsForm.profileName || currentUser || "博主",
+				content: replyContent.trim(),
+			}),
+		});
+		await handleApiResponse(resp);
+		replyContent = "";
+		notify("ok", "官方留言回复已发布");
+		await loadComments();
+	} catch (err) {
+		notify("err", err instanceof Error ? err.message : "回复失败");
+	} finally {
+		replySending = false;
+	}
+}
+
+async function handleDeleteComment(id: string) {
+	if (!confirm("确定删除这条留言吗？")) return;
+	try {
+		const resp = await fetch("/api/admin/comments/", {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ id }),
+		});
+		await handleApiResponse(resp);
+		notify("ok", "留言已删除");
+		await loadComments();
+	} catch (err) {
+		notify("err", err instanceof Error ? err.message : "删除留言失败");
+	}
 }
 
 function parseLineList(raw: string): string[] {
@@ -1134,6 +1317,10 @@ $effect(() => {
 					<Icon icon="material-symbols:forum-rounded" class="text-base" />
 					<span>动态管理</span>
 				</button>
+				<button type="button" onclick={() => setTab("comments")} class="admin-tab {activeTab === 'comments' ? 'admin-tab-active' : ''}">
+					<Icon icon="material-symbols:chat-outline-rounded" class="text-base" />
+					<span>留言管理 ({comments.length})</span>
+				</button>
 				<button type="button" onclick={() => setTab("media")} class="admin-tab {activeTab === 'media' ? 'admin-tab-active' : ''}">
 					<Icon icon="material-symbols:photo-library-outline" class="text-base" />
 					<span>B2 图床文件</span>
@@ -1454,6 +1641,106 @@ $effect(() => {
 										</div>
 									</div>
 									<p class="text-sm text-90 whitespace-pre-wrap break-words">{item.content}</p>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</section>
+			</div>
+
+		<!-- Tab 2.5: 留言管理 -->
+		{:else if activeTab === "comments"}
+			<div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+				<section class="lg:col-span-5 card-base p-5 space-y-4">
+					<div class="flex items-center justify-between gap-2">
+						<div>
+							<h2 class="font-bold text-base text-90">留言板状态与快捷回复</h2>
+							<p class="text-xs text-50 mt-0.5">当前模式：{settingsForm.commentType === "none" ? "已关闭" : settingsForm.commentType === "native" ? "内置云端留言板（Turso）" : settingsForm.commentType}</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => setTab("settings")}
+							class="btn-regular rounded-lg px-2.5 py-1.5 text-xs cursor-pointer"
+						>
+							切换评论设置
+						</button>
+					</div>
+
+					<form class="space-y-3" onsubmit={handleReplyComment}>
+						<div>
+							<label class="admin-label" for="reply-path">目标页面路径（默认留言板 /guestbook/）</label>
+							<input id="reply-path" type="text" bind:value={replyPagePath} class="admin-input w-full font-mono text-xs" />
+						</div>
+						<div>
+							<label class="admin-label" for="reply-content">以博主身份发布留言 / 回复</label>
+							<textarea
+								id="reply-content"
+								rows={4}
+								bind:value={replyContent}
+								placeholder="输入回复或置顶欢迎语…"
+								class="admin-input w-full text-sm resize-y"
+							></textarea>
+						</div>
+						<button
+							type="submit"
+							disabled={replySending}
+							class="w-full py-2.5 rounded-xl bg-(--primary) text-white dark:text-black/80 text-sm font-semibold hover:opacity-90 active:scale-[0.98] transition cursor-pointer disabled:opacity-50"
+						>
+							{replySending ? "发送中…" : "以博主身份发送"}
+						</button>
+					</form>
+				</section>
+
+				<section class="lg:col-span-7 card-base p-5 space-y-3">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h2 class="font-bold text-base text-90">全部留言 ({filteredComments.length})</h2>
+						<div class="flex items-center gap-2">
+							<input
+								type="search"
+								placeholder="搜索昵称 / 内容 / 路径…"
+								bind:value={commentSearch}
+								class="admin-input text-xs w-48"
+							/>
+							<button type="button" onclick={loadComments} class="btn-regular rounded-lg px-2.5 py-1.5 text-xs cursor-pointer">
+								刷新
+							</button>
+						</div>
+					</div>
+					{#if commentsLoading}
+						<p class="text-xs text-50 py-8 text-center">加载留言中…</p>
+					{:else if filteredComments.length === 0}
+						<p class="text-xs text-50 py-8 text-center">暂无云端留言记录（若使用第三方 Twikoo/Waline/Giscus，请在其对应后台管理）</p>
+					{:else}
+						<div class="space-y-2.5 max-h-[65vh] overflow-y-auto pr-1 custom-scrollbar">
+							{#each filteredComments as item (item.id)}
+								<div class="rounded-xl border border-black/10 dark:border-white/10 p-3.5 space-y-1.5">
+									<div class="flex items-center justify-between gap-2 text-xs">
+										<div class="flex items-center gap-2 flex-wrap">
+											<span class="font-bold text-90">{item.authorName}</span>
+											{#if item.isAdmin}
+												<span class="px-1.5 py-0.5 rounded bg-(--primary)/15 text-(--primary) font-medium">博主</span>
+											{/if}
+											<span class="px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[11px] text-50">{item.pagePath}</span>
+											<span class="text-50 tabular-nums">{item.createdAt}</span>
+										</div>
+										<div class="flex items-center gap-2 shrink-0">
+											<button
+												type="button"
+												onclick={() => (replyPagePath = item.pagePath)}
+												class="text-(--primary) hover:underline cursor-pointer"
+											>
+												回复该页
+											</button>
+											<button
+												type="button"
+												onclick={() => handleDeleteComment(item.id)}
+												class="text-rose-500 hover:underline cursor-pointer"
+											>
+												删除
+											</button>
+										</div>
+									</div>
+									<p class="text-sm text-75 whitespace-pre-wrap break-words">{item.content}</p>
 								</div>
 							{/each}
 						</div>
@@ -2036,6 +2323,235 @@ $effect(() => {
 							{/if}
 						</div>
 
+						<!-- 4. 留言与评论设置 -->
+						<div class="space-y-4 pt-5 border-t border-black/10 dark:border-white/10">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="text-sm font-bold text-90 flex items-center gap-2">
+									<span class="w-1 h-4 rounded-full bg-(--primary)"></span>
+									<span>留言板与文章评论设置</span>
+								</h3>
+								<a href="/guestbook/" target="_blank" class="text-xs text-(--primary) hover:underline">
+									打开留言板查看 ↗
+								</a>
+							</div>
+
+							<div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+								<div>
+									<label class="admin-label" for="s-comment-type">评论系统模式</label>
+									<select id="s-comment-type" bind:value={settingsForm.commentType} class="admin-input w-full">
+										<option value="native">内置云端留言板（Turso 免第三方配置，推荐）</option>
+										<option value="none">关闭留言与评论（none）</option>
+										<option value="twikoo">Twikoo</option>
+										<option value="waline">Waline</option>
+										<option value="giscus">Giscus（GitHub Discussions）</option>
+										<option value="artalk">Artalk</option>
+										<option value="disqus">Disqus</option>
+									</select>
+								</div>
+								<div class="flex items-end pb-1.5">
+									<label class="flex items-center gap-2 text-xs text-90 cursor-pointer select-none">
+										<input type="checkbox" bind:checked={settingsForm.commentEnableGuestbook} class="rounded" />
+										<span>在「留言板 (/guestbook/)」开启</span>
+									</label>
+								</div>
+								<div class="flex items-end pb-1.5">
+									<label class="flex items-center gap-2 text-xs text-90 cursor-pointer select-none">
+										<input type="checkbox" bind:checked={settingsForm.commentEnablePosts} class="rounded" />
+										<span>在「文章 / 友链 / 动态」开启评论</span>
+									</label>
+								</div>
+							</div>
+
+							{#if settingsForm.commentType === "twikoo"}
+								<div>
+									<label class="admin-label" for="s-twikoo">Twikoo EnvID / 服务端地址</label>
+									<input id="s-twikoo" type="text" placeholder="https://your-twikoo.vercel.app" bind:value={settingsForm.twikooEnvId} class="admin-input w-full font-mono text-xs" />
+								</div>
+							{:else if settingsForm.commentType === "waline"}
+								<div>
+									<label class="admin-label" for="s-waline">Waline Server URL</label>
+									<input id="s-waline" type="text" placeholder="https://your-waline.vercel.app" bind:value={settingsForm.walineServerUrl} class="admin-input w-full font-mono text-xs" />
+								</div>
+							{:else if settingsForm.commentType === "artalk"}
+								<div>
+									<label class="admin-label" for="s-artalk">Artalk Server 地址</label>
+									<input id="s-artalk" type="text" placeholder="https://artalk.example.com/" bind:value={settingsForm.artalkServer} class="admin-input w-full font-mono text-xs" />
+								</div>
+							{:else if settingsForm.commentType === "giscus"}
+								<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+									<div>
+										<label class="admin-label" for="s-giscus-repo">GitHub 仓库（owner/repo）</label>
+										<input id="s-giscus-repo" type="text" bind:value={settingsForm.giscusRepo} class="admin-input w-full font-mono text-xs" />
+									</div>
+									<div>
+										<label class="admin-label" for="s-giscus-repoid">Repo ID</label>
+										<input id="s-giscus-repoid" type="text" bind:value={settingsForm.giscusRepoId} class="admin-input w-full font-mono text-xs" />
+									</div>
+									<div>
+										<label class="admin-label" for="s-giscus-cat">Category 名称</label>
+										<input id="s-giscus-cat" type="text" bind:value={settingsForm.giscusCategory} class="admin-input w-full font-mono text-xs" />
+									</div>
+									<div>
+										<label class="admin-label" for="s-giscus-catid">Category ID</label>
+										<input id="s-giscus-catid" type="text" bind:value={settingsForm.giscusCategoryId} class="admin-input w-full font-mono text-xs" />
+									</div>
+								</div>
+							{:else if settingsForm.commentType === "disqus"}
+								<div>
+									<label class="admin-label" for="s-disqus">Disqus Shortname</label>
+									<input id="s-disqus" type="text" bind:value={settingsForm.disqusShortname} class="admin-input w-full font-mono text-xs" />
+								</div>
+							{/if}
+						</div>
+
+						<!-- 5. 相册管理与密码保护 -->
+						<div class="space-y-4 pt-5 border-t border-black/10 dark:border-white/10">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<div>
+									<h3 class="text-sm font-bold text-90 flex items-center gap-2">
+										<span class="w-1 h-4 rounded-full bg-(--primary)"></span>
+										<span>相册管理与访问密码设置</span>
+									</h3>
+									<p class="text-xs text-50 mt-0.5">已移除默认弱密码 123456；可随时为任意相册自定义访问密码、密码提示、B2 照片或直接隐藏相册</p>
+								</div>
+								<button
+									type="button"
+									onclick={addCustomAlbum}
+									class="btn-regular rounded-lg px-3 py-1.5 text-xs cursor-pointer"
+								>
+									+ 新建相册
+								</button>
+							</div>
+
+							<div class="space-y-3">
+								{#each settingsForm.galleryAlbumConfigs as album, idx (album.id)}
+									<div class="rounded-xl border border-black/10 dark:border-white/10 p-4 space-y-3 bg-black/2 dark:bg-white/2">
+										<div class="flex flex-wrap items-center justify-between gap-2">
+											<div class="flex items-center gap-2">
+												<span class="text-xs font-mono px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 text-75">{album.id}</span>
+												{#if album.password}
+													<span class="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">已加密</span>
+												{:else}
+													<span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">公开访问</span>
+												{/if}
+											</div>
+											<div class="flex items-center gap-3">
+												<label class="flex items-center gap-1.5 text-xs text-75 cursor-pointer select-none">
+													<input type="checkbox" bind:checked={album.hidden} class="rounded" />
+													<span>隐藏此相册</span>
+												</label>
+												{#if !album.isBuiltin}
+													<button
+														type="button"
+														onclick={() => removeCustomAlbum(idx)}
+														class="text-xs text-rose-500 hover:underline cursor-pointer"
+													>
+														删除相册
+													</button>
+												{/if}
+											</div>
+										</div>
+
+										<div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+											<div>
+												<label class="admin-label" for={`alb-name-${idx}`}>相册名称</label>
+												<input id={`alb-name-${idx}`} type="text" bind:value={album.name} class="admin-input text-xs w-full" />
+											</div>
+											<div>
+												<label class="admin-label" for={`alb-loc-${idx}`}>拍摄地点 / 分类</label>
+												<input id={`alb-loc-${idx}`} type="text" bind:value={album.location} class="admin-input text-xs w-full" />
+											</div>
+											<div>
+												<label class="admin-label" for={`alb-date-${idx}`}>日期</label>
+												<input id={`alb-date-${idx}`} type="text" placeholder="YYYY-MM-DD" bind:value={album.date} class="admin-input text-xs w-full" />
+											</div>
+										</div>
+
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+											<div>
+												<label class="admin-label" for={`alb-pwd-${idx}`}>访问密码（留空即取消密码）</label>
+												<div class="flex gap-1.5">
+													<input
+														id={`alb-pwd-${idx}`}
+														type={showAlbumPasswords[album.id] ? "text" : "password"}
+														autocomplete="new-password"
+														placeholder="设置高强度专属访问密码，留空公开"
+														bind:value={album.password}
+														class="admin-input text-xs w-full"
+													/>
+													<button
+														type="button"
+														onclick={() => {
+															showAlbumPasswords = {
+																...showAlbumPasswords,
+																[album.id]: !showAlbumPasswords[album.id],
+															};
+														}}
+														class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+													>
+														{showAlbumPasswords[album.id] ? "隐藏" : "显示"}
+													</button>
+												</div>
+											</div>
+											<div>
+												<label class="admin-label" for={`alb-hint-${idx}`}>密码提示（注意勿直接写明密码）</label>
+												<input
+													id={`alb-hint-${idx}`}
+													type="text"
+													placeholder="可选，例如：我的生日/纪念日"
+													bind:value={album.passwordHint}
+													class="admin-input text-xs w-full"
+												/>
+											</div>
+										</div>
+
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+											<div>
+												<label class="admin-label" for={`alb-cover-${idx}`}>封面图片 URL（留空自动取第一张）</label>
+												<div class="flex gap-1.5">
+													<input id={`alb-cover-${idx}`} type="text" bind:value={album.cover} class="admin-input text-xs w-full font-mono" />
+													<button
+														type="button"
+														onclick={() => (showMediaPicker = `album-cover:${idx}`)}
+														class="btn-regular rounded-lg px-2.5 text-xs shrink-0 cursor-pointer"
+													>
+														选图
+													</button>
+												</div>
+											</div>
+											<div>
+												<label class="admin-label" for={`alb-desc-${idx}`}>相册描述</label>
+												<input id={`alb-desc-${idx}`} type="text" bind:value={album.description} class="admin-input text-xs w-full" />
+											</div>
+										</div>
+
+										<div>
+											<div class="flex items-center justify-between gap-2 mb-1">
+												<label class="admin-label mb-0" for={`alb-photos-${idx}`}>追加照片 URL（每行一条，支持 B2 图库选图或外链）</label>
+												<button
+													type="button"
+													onclick={() => (showMediaPicker = `album-photo:${idx}`)}
+													class="btn-regular rounded-md px-2 py-1 text-[11px] cursor-pointer"
+												>
+													+ 从 B2 添加照片
+												</button>
+											</div>
+											<textarea
+												id={`alb-photos-${idx}`}
+												rows={2}
+												value={(album.extraPhotos || []).join("\n")}
+												oninput={(e) => {
+													album.extraPhotos = parseLineList(e.currentTarget.value);
+												}}
+												placeholder="/api/media/?key=... 或 https://..."
+												class="admin-input text-xs w-full font-mono"
+											></textarea>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+
 						<div class="pt-3 flex flex-wrap items-center gap-3">
 							<button
 								type="submit"
@@ -2095,7 +2611,7 @@ $effect(() => {
 					<span>快速跳转工作区</span>
 					<button type="button" onclick={() => (commandOpen = false)} class="cursor-pointer">ESC</button>
 				</div>
-				{#each [["posts", "文章管理（新建/编辑 Markdown）"], ["dynamics", "动态管理（发布碎碎念）"], ["media", "Backblaze B2 图床与文件管理"], ["settings", "站点设置（酷酷dcl 基础配置）"]] as [tab, label]}
+				{#each [["posts", "文章管理（新建/编辑 Markdown）"], ["dynamics", "动态管理（发布碎碎念）"], ["comments", "留言管理（查看/回复/删除访客留言）"], ["media", "Backblaze B2 图床与文件管理"], ["settings", "站点设置（壁纸/歌源/留言/相册密码）"]] as [tab, label]}
 					<button
 						type="button"
 						onclick={() => {

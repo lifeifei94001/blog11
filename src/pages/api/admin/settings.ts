@@ -74,6 +74,18 @@ export const POST: APIRoute = async ({ request }) => {
 			musicAudiusQuery: body.musicAudiusQuery,
 			musicShowLyrics: body.musicShowLyrics,
 			musicCustomPlaylist: body.musicCustomPlaylist,
+			commentType: body.commentType,
+			commentEnableGuestbook: body.commentEnableGuestbook,
+			commentEnablePosts: body.commentEnablePosts,
+			twikooEnvId: body.twikooEnvId,
+			walineServerUrl: body.walineServerUrl,
+			artalkServer: body.artalkServer,
+			giscusRepo: body.giscusRepo,
+			giscusRepoId: body.giscusRepoId,
+			giscusCategory: body.giscusCategory,
+			giscusCategoryId: body.giscusCategoryId,
+			disqusShortname: body.disqusShortname,
+			galleryAlbumConfigs: body.galleryAlbumConfigs,
 		});
 		return json({ ok: true, settings: saved });
 	} catch (err) {

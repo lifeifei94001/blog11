@@ -25,14 +25,12 @@ export const galleryConfig: GalleryConfig = {
 		},
 		{
 			id: "encrypted-test",
-			name: "加密相册示例",
+			name: "私密相册",
 			description:
-				"这是一个加密相册的示例，设置了访问密码，只有输入正确的密码才能查看相册内容。",
+				"可在后台管理面板的「站点设置 → 相册管理与密码保护」中设置专属访问密码或选择隐藏该相册。",
 			location: "崩坏：星穹铁道",
 			date: "2026-02-01",
-			tags: ["加密相册", "示例"],
-			password: "123456",
-			passwordHint: "示例密码123456",
+			tags: ["私密相册", "示例"],
 		},
 	],
 

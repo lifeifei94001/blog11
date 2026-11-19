@@ -1,13 +1,16 @@
 ---
 import { Icon } from "astro-icon/components";
 import AlbumCard from "@/components/pages/gallery/AlbumCard.astro";
-import { galleryConfig, siteConfig } from "@/config";
+import { siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
+import { getUnifiedGalleryAlbums } from "@/lib/blog-store";
 import "@/styles/pages/common.css";
 import { getAlbumCover, scanAlbumPhotos } from "@/utils/gallery-utils";
 import "@/styles/pages/card-grid.css";
+
+export const prerender = false;
 
 // 检查页面是否启用
 if (!siteConfig.pages.gallery) {
@@ -17,9 +20,10 @@ if (!siteConfig.pages.gallery) {
 const title = i18n(I18nKey.gallery);
 const description = i18n(I18nKey.galleryDescription);
 
-// 构建相册数据（扫描照片、获取封面）
-const albums = galleryConfig.albums.map((album) => {
-	const photos = scanAlbumPhotos(album.id);
+// 构建相册数据（合并后台配置、扫描照片、获取封面）
+const configuredAlbums = await getUnifiedGalleryAlbums(false);
+const albums = configuredAlbums.map((album) => {
+	const photos = scanAlbumPhotos(album.id, album.extraPhotos);
 	const cover = getAlbumCover(album, photos);
 	return { ...album, cover, photoCount: photos.length };
 });

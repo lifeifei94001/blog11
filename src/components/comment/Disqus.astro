@@ -5,6 +5,7 @@ interface Props {
 	identifier: string;
 	url: string;
 	title: string;
+	shortname?: string;
 }
 
 const { identifier, url, title } = Astro.props;
@@ -12,7 +13,7 @@ const { identifier, url, title } = Astro.props;
 if (!commentConfig?.disqus) {
 	throw new Error("Disqus comments are not configured");
 }
-const shortname = commentConfig.disqus.shortname;
+const shortname = Astro.props.shortname || commentConfig.disqus.shortname;
 ---
 
 <div id="disqus_thread"></div>

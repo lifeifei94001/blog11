@@ -1,0 +1,199 @@
+---
+import { url } from "@/utils/url-utils";
+
+interface Props {
+	path: string;
+}
+
+const { path } = Astro.props;
+const apiUrl = url("/api/comments/");
+---
+
+<div
+  class="native-comment-box space-y-5"
+  data-page-path={path}
+  data-api-url={apiUrl}
+>
+  <form class="nc-form space-y-3 rounded-xl border border-(--line-divider) p-4 bg-black/2 dark:bg-white/2">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      <input
+        type="text"
+        name="authorName"
+        required
+        maxlength="40"
+        placeholder="昵称 *（必填）"
+        class="px-3 py-2 rounded-lg text-sm bg-white/80 dark:bg-black/25 border border-black/10 dark:border-white/10 text-90 outline-none focus:border-(--primary) transition"
+      />
+      <input
+        type="email"
+        name="authorEmail"
+        maxlength="100"
+        placeholder="邮箱（可选，不会公开）"
+        class="px-3 py-2 rounded-lg text-sm bg-white/80 dark:bg-black/25 border border-black/10 dark:border-white/10 text-90 outline-none focus:border-(--primary) transition"
+      />
+      <input
+        type="text"
+        name="authorWebsite"
+        maxlength="200"
+        placeholder="个人主页 URL（可选）"
+        class="px-3 py-2 rounded-lg text-sm bg-white/80 dark:bg-black/25 border border-black/10 dark:border-white/10 text-90 outline-none focus:border-(--primary) transition"
+      />
+    </div>
+    <textarea
+      name="content"
+      required
+      rows="3"
+      maxlength="1200"
+      placeholder="写下你的留言或想法吧～"
+      class="w-full px-3 py-2 rounded-lg text-sm bg-white/80 dark:bg-black/25 border border-black/10 dark:border-white/10 text-90 outline-none focus:border-(--primary) transition resize-y"
+    ></textarea>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <span class="nc-status text-xs text-(--content-meta)"></span>
+      <button
+        type="submit"
+        class="nc-submit px-4 py-2 rounded-lg text-xs font-semibold bg-(--primary) text-white dark:text-black/80 hover:opacity-90 active:scale-95 transition cursor-pointer disabled:opacity-50"
+      >
+        发送留言
+      </button>
+    </div>
+  </form>
+
+  <div class="nc-list space-y-3">
+    <p class="text-xs text-(--content-meta) text-center py-6">留言加载中…</p>
+  </div>
+</div>
+
+<script is:inline>
+  (function () {
+    function escapeText(str) {
+      var div = document.createElement('div');
+      div.textContent = str == null ? '' : String(str);
+      return div.innerHTML;
+    }
+
+    function renderComments(box, comments) {
+      var listEl = box.querySelector('.nc-list');
+      if (!listEl) return;
+      if (!comments || comments.length === 0) {
+        listEl.innerHTML = '<p class="text-xs text-(--content-meta) text-center py-6">还没有留言，来留下第一条足迹吧～</p>';
+        return;
+      }
+
+      var html = '';
+      for (var i = 0; i < comments.length; i++) {
+        var c = comments[i];
+        var initial = (c.authorName || '?').trim().charAt(0).toUpperCase() || '?';
+        var nameHtml = c.authorWebsite
+          ? '<a href="' + escapeText(c.authorWebsite) + '" target="_blank" rel="noopener noreferrer" class="font-bold text-sm text-90 hover:text-(--primary) transition">' + escapeText(c.authorName) + '</a>'
+          : '<span class="font-bold text-sm text-90">' + escapeText(c.authorName) + '</span>';
+        var badge = c.isAdmin
+          ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-(--primary)/15 text-(--primary)">博主</span>'
+          : '';
+        html +=
+          '<div class="rounded-xl border border-(--line-divider) p-4 bg-black/2 dark:bg-white/2">' +
+            '<div class="flex items-center justify-between gap-2 mb-2">' +
+              '<div class="flex items-center gap-2.5 min-w-0">' +
+                '<div class="w-8 h-8 rounded-full bg-(--primary)/15 text-(--primary) font-bold text-xs flex items-center justify-center shrink-0">' + escapeText(initial) + '</div>' +
+                '<div class="flex items-center gap-1.5 min-w-0 truncate">' + nameHtml + badge + '</div>' +
+              '</div>' +
+              '<span class="text-[11px] text-(--content-meta) shrink-0 tabular-nums">' + escapeText(c.createdAt) + '</span>' +
+            '</div>' +
+            '<div class="text-sm text-75 whitespace-pre-wrap break-words leading-relaxed pl-10.5">' + escapeText(c.content) + '</div>' +
+          '</div>';
+      }
+      listEl.innerHTML = html;
+    }
+
+    function initBox(box) {
+      if (box.dataset.ncInit === '1') return;
+      box.dataset.ncInit = '1';
+
+      var apiUrl = box.dataset.apiUrl || '/api/comments/';
+      var rawPath = new URLSearchParams(window.location.search).get('path') || box.dataset.pagePath || window.location.pathname;
+      var form = box.querySelector('.nc-form');
+      var statusEl = box.querySelector('.nc-status');
+      var submitBtn = box.querySelector('.nc-submit');
+
+      var savedName = localStorage.getItem('nc_author_name') || '';
+      var savedWebsite = localStorage.getItem('nc_author_website') || '';
+      if (form) {
+        var nameInput = form.querySelector('[name="authorName"]');
+        var siteInput = form.querySelector('[name="authorWebsite"]');
+        if (nameInput && !nameInput.value && savedName) nameInput.value = savedName;
+        if (siteInput && !siteInput.value && savedWebsite) siteInput.value = savedWebsite;
+      }
+
+      function fetchList() {
+        fetch(apiUrl + '?path=' + encodeURIComponent(rawPath))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data.ok) throw new Error(data.error || '加载失败');
+            renderComments(box, data.comments || []);
+          })
+          .catch(function (err) {
+            var listEl = box.querySelector('.nc-list');
+            if (listEl) {
+              listEl.innerHTML = '<p class="text-xs text-rose-500 text-center py-6">' + escapeText(err.message || '加载留言失败') + '</p>';
+            }
+          });
+      }
+
+      fetchList();
+
+      if (form) {
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var fd = new FormData(form);
+          var authorName = String(fd.get('authorName') || '').trim();
+          var authorEmail = String(fd.get('authorEmail') || '').trim();
+          var authorWebsite = String(fd.get('authorWebsite') || '').trim();
+          var content = String(fd.get('content') || '').trim();
+          if (!authorName || !content) return;
+
+          if (submitBtn) submitBtn.disabled = true;
+          if (statusEl) statusEl.textContent = '正在提交…';
+
+          fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pagePath: rawPath,
+              authorName: authorName,
+              authorEmail: authorEmail,
+              authorWebsite: authorWebsite,
+              content: content
+            })
+          })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+              if (!res.ok || !res.d.ok) throw new Error((res.d && res.d.error) || '提交失败');
+              localStorage.setItem('nc_author_name', authorName);
+              if (authorWebsite) localStorage.setItem('nc_author_website', authorWebsite);
+              var contentInput = form.querySelector('[name="content"]');
+              if (contentInput) contentInput.value = '';
+              if (statusEl) statusEl.textContent = '留言发送成功！';
+              fetchList();
+            })
+            .catch(function (err) {
+              if (statusEl) statusEl.textContent = err.message || '提交失败';
+            })
+            .finally(function () {
+              if (submitBtn) submitBtn.disabled = false;
+            });
+        });
+      }
+    }
+
+    function initAll() {
+      document.querySelectorAll('.native-comment-box').forEach(initBox);
+    }
+
+    initAll();
+    if (!window.__nativeCommentSwup) {
+      window.__nativeCommentSwup = true;
+      document.addEventListener('swup:contentReplaced', function () {
+        setTimeout(initAll, 80);
+      });
+    }
+  })();
+</script>
